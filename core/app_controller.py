@@ -283,6 +283,31 @@ class AppController(QObject):
         else:
             self.right_panel.lbl_ws_info.setText(f"Error: {result.get('error')}")
 
+    def _on_scan_finished(self, success, result_msg):
+            """스캔 루프가 종료(정상 완료 또는 에러/중단)되었을 때 호출됨"""
+            self.left_panel.btn_scan_start.setText("Scan Start")
+            self.main_window.status_left_label.setText("State: default")
+            
+            if success:
+                self.left_panel.lbl_scan_info.setText(f"Done: {result_msg}")
+                self.left_panel.lbl_scan_info.setStyleSheet("color: green;")
+                
+                # 스캔 종료 후 WinSpec 자동 획득 로직 연동
+                if self.right_panel.chk_ws_auto.isChecked():
+                    self.handle_ws_acquire()
+            else:
+                self.left_panel.lbl_scan_info.setText("Scan aborted/failed.")
+                self.left_panel.lbl_scan_info.setStyleSheet("color: red;")
+
+        def _on_worker_message(self, level, msg):
+            """워커에서 보내는 일반 상태 메시지 처리"""
+            if level == "error":
+                self.left_panel.lbl_scan_info.setText(f"Error: {msg}")
+                self.left_panel.lbl_scan_info.setStyleSheet("color: red;")
+            else:
+                self.left_panel.lbl_scan_info.setText(msg)
+                self.left_panel.lbl_scan_info.setStyleSheet("color: gray;")
+
     def shutdown(self):
         """애플리케이션 종료 시 호출되어 모든 스레드를 안전하게 정리한다."""
 
