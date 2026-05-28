@@ -59,6 +59,25 @@ class AppController(QObject):
 
         # 3. PicoHarp Worker 초기화 (예정)
 
+    def _get_current_scan_params(self):
+        """UI에서 스캔 파라미터를 추출하여 딕셔너리로 반환한다. 변환 실패 시 None 반환."""
+        try:
+            return {
+                'x_min': float(self.left_panel.le_x_min.text()),
+                'x_max': float(self.left_panel.le_x_max.text()),
+                'y_min': float(self.left_panel.le_y_min.text()),
+                'y_max': float(self.left_panel.le_y_max.text()),
+                'x_steps': int(self.left_panel.le_x_steps.text()),
+                'y_steps': int(self.left_panel.le_y_steps.text()),
+                'exposure_time': float(self.left_panel.le_dwell.text()),
+                'ao_sample_rate': float(self.left_panel.le_ao_rate.text()),
+                'mode': self.left_panel.cb_scan_mode.currentText()
+            }
+        except ValueError as e:
+            self.left_panel.lbl_scan_info.setText("Error: 파라미터 입력 오류 (숫자 아님)")
+            self.left_panel.lbl_scan_info.setStyleSheet("color: red;")
+            return None
+        
     def _connect_ui_to_controllers(self):
         """UI에서 발생한 이벤트를 Controller의 처리 로직으로 연결"""
 
@@ -77,11 +96,11 @@ class AppController(QObject):
         self.left_panel.btn_scan_start.clicked.connect(self.handle_scan_toggle)
         self.left_panel.btn_apd_count.clicked.connect(self.handle_apd_count_toggle)
 
-        # -- Galvo / Piezo 수동 이동 (예정) --
-        # self.left_panel.btn_galvo_move.clicked.connect(self.handle_galvo_move)
-        # self.left_panel.btn_piezo_move.clicked.connect(self.handle_piezo_move)
-
-        # ==========================================
+        # ── Move Control (Galvo / Piezo) 연결 ──
+        self.left_panel.btn_galvo_move.clicked.connect(self.handle_galvo_move)
+        self.left_panel.btn_set_zero.clicked.connect(self.handle_galvo_set_zero)
+        
+        self.left_panel.btn_piezo_move.clicked.connect(self.handle_piezo_move)
         # Sub-window (APD Count) -> Controller
         # ==========================================
         # 창 닫힘 → 폴링 중단 & UI 원복
@@ -156,21 +175,8 @@ class AppController(QObject):
             QMetaObject.invokeMethod(self.apd_worker, "stop_counting", Qt.QueuedConnection)
 
         # 3. 파라미터 추출 및 타입 변환 (Type Casting)
-        try:
-            params = {
-                'x_min': float(self.left_panel.le_x_min.text()),
-                'x_max': float(self.left_panel.le_x_max.text()),
-                'y_min': float(self.left_panel.le_y_min.text()),
-                'y_max': float(self.left_panel.le_y_max.text()),
-                'x_steps': int(self.left_panel.le_x_steps.text()),
-                'y_steps': int(self.left_panel.le_y_steps.text()),
-                'exposure_time': float(self.left_panel.le_dwell.text()),
-                'ao_sample_rate': float(self.left_panel.le_ao_rate.text()), # UI에 추가한 부분
-                'mode': self.left_panel.cb_scan_mode.currentText()
-            }
-        except ValueError as e:
-            self.left_panel.lbl_scan_info.setText("Error: 숫자가 아닌 값이 입력됨")
-            self.left_panel.lbl_scan_info.setStyleSheet("color: red;")
+        params = self._get_current_scan_params()
+        if params is None:
             return
 
         # 4. UI 상태 변경
@@ -182,7 +188,37 @@ class AppController(QObject):
         # 5. 비동기 큐를 통해 Worker의 start_scan 호출
         QMetaObject.invokeMethod(self.scan_worker, "start_scan", 
                                  Qt.QueuedConnection, Q_ARG(dict, params))
-    
+  
+    # -------------------------------------------------------------------------
+    # Manual Move Handlers
+    # -------------------------------------------------------------------------
+    def handle_galvo_move(self):
+        """Galvo X, Y 수동 이동 명령"""
+        try:
+            x_um = float(self.left_panel.le_galvo_x.text())
+            y_um = float(self.left_panel.le_galvo_y.text())
+            
+            # TODO: 나중에 Main Thread에서 단발성 DAQ AO Task를 실행하거나, 
+            # Galvo 전용 Worker를 만들어 invokeMethod로 넘길 것.
+            print(f"[Move] Galvo 이동: X={x_um}μm, Y={y_um}μm")
+        except ValueError:
+            pass
+
+    def handle_galvo_set_zero(self):
+        self.left_panel.le_galvo_x.setText("0.0")
+        self.left_panel.le_galvo_y.setText("0.0")
+        self.handle_galvo_move()
+
+    def handle_piezo_move(self):
+        """Piezo Z 수동 이동 명령"""
+        try:
+            z_um = float(self.left_panel.le_piezo_z.text())
+            # TODO: Piezo Worker 연동 예정
+            print(f"[Move] Piezo 이동: Z={z_um}μm")
+        except ValueError:
+            pass
+
+        
     def _on_apd_window_closed(self):
         """APD 창의 X 버튼을 누르거나 코드로 close() 했을 때 상태 복구 및 스레드 종료"""
        
