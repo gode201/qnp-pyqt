@@ -1,0 +1,113 @@
+import numpy as np
+import matplotlib
+matplotlib.use('Qt5Agg')
+
+from PyQt5.QtWidgets import QWidget, QVBoxLayout
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+import matplotlib.gridspec as gridspec
+import matplotlib.pyplot as plt
+
+class CenterPlotWidget(QWidget):
+    """
+    Matplotlib 기반의 데이터 시각화를 전담하는 독립 위젯.
+    외부 컴포넌트는 axes에 직접 접근하지 않고, 제공되는 메서드를 통해서만 플롯을 업데이트해야 함.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._setup_ui()
+        self._init_plots()
+
+    def _setup_ui(self):
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(5, 5, 5, 5)
+
+        # Figure 및 Canvas 생성
+        self.fig = Figure(figsize=(10, 9))
+        self.canvas = FigureCanvas(self.fig)
+        self.layout.addWidget(self.canvas)
+
+    def _init_plots(self):
+        """기존 2x2 gridspec 구조 복원 (상단 APD/Hist, 하단 PL Image)"""
+        spec = self.fig.add_gridspec(2, 2, height_ratios=[1, 3], width_ratios=[1, 2])
+
+        # 1. Z Scan / Auto-Focus (상단 좌측)
+        self.ax1 = self.fig.add_subplot(spec[0, 0])
+        self.ax1.set_title("Z Scan / Auto-Focus", fontsize=9)
+        self.ax1.set_xlabel("Z (μm)", fontsize=8)
+        self.ax1.set_ylabel("Count / s", fontsize=8)
+        self.ax1.tick_params(labelsize=7)
+
+        # 2. PicoHarp Histogram (상단 우측)
+        self.ax_hist = self.fig.add_subplot(spec[0, 1])
+        self.ax_hist.set_title("PicoHarp Histogram", fontsize=9)
+        self.ax_hist.set_xlabel("Time (ns)", fontsize=8)
+        self.ax_hist.set_ylabel("Counts", fontsize=8)
+        self.ax_hist.tick_params(labelsize=7)
+        self.ax_hist.set_yscale("log")
+        self.ax_hist.set_xlim(0, 100)
+        self.ax_hist.set_ylim(0.5, 1e5)
+        self._hist_line, = self.ax_hist.plot([0], [1], color='steelblue', lw=1)
+
+        # 3. PL Scanning Image (하단 전체)
+        self.ax2 = self.fig.add_subplot(spec[1, :])
+        self.ax2.set_box_aspect(1)
+        self.ax2.set_title("PL Scanning Image")
+        self.ax2.set_xlabel("X (μm)")
+        self.ax2.set_ylabel("Y (μm)")
+        
+        # Galvo Indicator
+        self.galvo_indicator = plt.Circle(
+            (0, 0), 1.0, color='cyan', fill=False, lw=2, zorder=10
+        )
+        self.ax2.add_patch(self.galvo_indicator)
+
+        # Colorbar 초기화 (Dummy 데이터)
+        dummy = plt.cm.ScalarMappable(cmap='gist_heat')
+        self.cbar = self.fig.colorbar(dummy, ax=self.ax2, fraction=0.046, pad=0.04)
+
+        # 객체 상태 변수
+        self._pl_img = None
+        self._pl_img_extent = None
+        
+        self.fig.tight_layout(pad=1.5)
+
+    def update_pl_plot(self, pl_data_grid, extent, cmap_name='gist_heat', norm=None, vmin=None, vmax=None):
+        """
+        PL Image 업데이트 함수. 
+        이전 코드의 복잡한 조건문(need_rebuild) 로직을 이곳에 캡슐화(Encapsulation)함.
+        """
+        if pl_data_grid is None:
+            return
+
+        cmap = plt.get_cmap(cmap_name)
+        cmap.set_bad(color='white')
+
+        # extent나 크기가 바뀌면 새로 그리고, 아니면 set_data로 최적화
+        need_rebuild = (
+            self._pl_img is None or 
+            self._pl_img_extent != extent or 
+            self._pl_img.get_array().shape != pl_data_grid.shape
+        )
+
+        if need_rebuild:
+            self.ax2.clear()
+            self._pl_img = self.ax2.imshow(
+                pl_data_grid, extent=extent, origin='lower',
+                cmap=cmap, norm=norm, vmin=vmin, vmax=vmax, aspect='auto'
+            )
+            self._pl_img_extent = extent
+            self.ax2.add_patch(self.galvo_indicator)
+            self.ax2.set_title("PL Scanning Image")
+            self.ax2.set_xlabel("X (μm)")
+            self.ax2.set_ylabel("Y (μm)")
+            self.cbar.update_normal(self._pl_img)
+        else:
+            self._pl_img.set_data(pl_data_grid)
+            if norm:
+                self._pl_img.set_norm(norm)
+            else:
+                self._pl_img.set_clim(vmin, vmax)
+            self._pl_img.set_cmap(cmap)
+
+        self.canvas.draw_idle()
