@@ -163,28 +163,35 @@ class LeftPanelWidget(QWidget):
         layout.addStretch()
 
     def _build_image_tab(self):
-        layout = QFormLayout(self.image_tab)
-        
-        self.chk_cb_lock = QCheckBox("Lock Colorbar")
-        self.le_cb_max = QLineEdit("1")
-        self.le_cb_min = QLineEdit("0")
-        self.le_cb_max.setEnabled(False)
-        self.le_cb_min.setEnabled(False)
-        
-        self.chk_log_scale = QCheckBox("Log Scale")
-        
-        self.cb_colormap = QComboBox()
-        self.cb_colormap.addItems(["gist_heat", "viridis", "jet", "plasma", "inferno"])
+            layout = QFormLayout(self.image_tab)
+            
+            self.chk_cb_lock = QCheckBox("Lock Colorbar")
+            self.le_cb_max = QLineEdit("1")
+            self.le_cb_min = QLineEdit("0")
+            self.le_cb_max.setEnabled(False)
+            self.le_cb_min.setEnabled(False)
+            
+            self.chk_log_scale = QCheckBox("Log Scale")
+            
+            self.cb_colormap = QComboBox()
+            self.cb_colormap.addItems(["gist_heat", "viridis", "jet", "plasma", "inferno"])
 
-        layout.addRow(self.chk_cb_lock)
-        layout.addRow("CB Max:", self.le_cb_max)
-        layout.addRow("CB Min:", self.le_cb_min)
-        layout.addRow(self.chk_log_scale)
-        layout.addRow("Colormap:", self.cb_colormap)
+            layout.addRow(self.chk_cb_lock)
+            layout.addRow("CB Max:", self.le_cb_max)
+            layout.addRow("CB Min:", self.le_cb_min)
+            layout.addRow(self.chk_log_scale)
+            layout.addRow("Colormap:", self.cb_colormap)
 
-        self.btn_save_image = QPushButton("Save PL Image")
-        self.btn_import_data = QPushButton("Import TXT")
-        layout.addRow(self.btn_save_image, self.btn_import_data)
+            # ---------------- 수정할 부분 ----------------
+            self.btn_save_image = QPushButton("Save Image (PNG)")
+            self.btn_save_image.setStyleSheet("background-color: #607D8B; color: white;")
+            
+            self.btn_export_data = QPushButton("Export Data (TXT/CSV)")
+            self.btn_import_data = QPushButton("Import Data (TXT/CSV)")
+            
+            # 버튼들을 레이아웃에 예쁘게 패킹
+            layout.addRow(self.btn_save_image)
+            layout.addRow(self.btn_export_data, self.btn_import_data)
 
     def _build_galvo_group(self):
         group = QGroupBox("Galvo Move")

@@ -22,7 +22,11 @@ class AppController(QObject):
     def __init__(self, main_window):
         super().__init__()
         self.main_window = main_window
-        
+
+        # --- 데이터 캐싱용 상태 변수 ---
+        self._latest_pl_data = None
+        self._latest_extent = None
+
         # 메인 윈도우에서 UI 컴포넌트 참조 가져오기
         self.left_panel: LeftPanelWidget = main_window.left_panel
         self.center_panel: CenterPlotWidget = main_window.center_panel
@@ -103,7 +107,12 @@ class AppController(QObject):
         # ==========================================
         # Left Panel (Scan / APD / Move) -> Controller
         # ==========================================
-        # -- Scan / APD (구현 완료) --
+        # -- image I/O  -- 
+        self.left_panel.btn_save_image.clicked.connect(self.handle_save_image)
+        self.left_panel.btn_export_data.clicked.connect(self.handle_export_data)
+        self.left_panel.btn_import_data.clicked.connect(self.handle_import_data)
+
+        # -- Scan / APD  --
         self.left_panel.btn_scan_start.clicked.connect(self.handle_scan_toggle)
         self.left_panel.btn_apd_count.clicked.connect(self.handle_apd_count_toggle)
 
@@ -132,7 +141,7 @@ class AppController(QObject):
         self.ws_worker.sig_progress.connect(self.right_panel.lbl_ws_info.setText)
 
         # PL Scan
-        self.scan_worker.sig_scan_progress.connect(self.center_panel.update_pl_plot)
+        self.scan_worker.sig_scan_progress.connect(self._on_scan_progress)
         self.scan_worker.sig_scan_finished.connect(self._on_scan_finished)
         self.scan_worker.sig_message.connect(self._on_worker_message)
 
@@ -298,6 +307,363 @@ class AppController(QObject):
             # TODO: csv_path를 읽어서 CenterPlotWidget의 ax_hist에 스펙트럼 플롯하도록 연결
         else:
             self.right_panel.lbl_ws_info.setText(f"Error: {result.get('error')}")
+
+
+    # -------------------------------------------------------------------------
+    # Data Caching & I/O Handlers
+    # -------------------------------------------------------------------------
+    def _on_scan_progress(self, pl_data_grid, extent):
+        """스캔 진행 시 컨트롤러에 데이터를 캐싱하고 UI를 업데이트한다."""
+        self._latest_pl_data = pl_data_grid
+        self._latest_extent = extent
+        self.center_panel.update_pl_plot(pl_data_grid, extent)
+
+    def handle_export_data(self):
+        """현재 캐싱된 PL 맵 데이터를 구형 호환 포맷([RANGE], [STEPS], [PL_DATA])으로 내보낸다."""
+        if self._latest_pl_data is None or self._latest_extent is None:
+            self.left_panel.lbl_scan_info.setText("Error: 내보낼 데이터가 없음.")
+            self.left_panel.lbl_scan_info.setStyleSheet("color: red;")
+            return
+
+        from PyQt5.QtWidgets import QFileDialog
+        import numpy as np
+
+        options = QFileDialog.Options()
+        filepath, _ = QFileDialog.getSaveFileName(
+            self.main_window, 
+            "Save PL Data", 
+            "", 
+            "Text Files (*.txt);;CSV Files (*.csv)", 
+            options=options
+        )
+
+        if not filepath:
+            return
+
+        try:
+            x_min, x_max, y_min, y_max = self._latest_extent
+            y_steps, x_steps = self._latest_pl_data.shape
+
+            # 좌표 배열 생성
+            x_arr = np.linspace(x_min, x_max, x_steps)
+            y_arr = np.linspace(y_min, y_max, y_steps)
+
+            with open(filepath, 'w', encoding='utf-8') as f:
+                # 1. 메타데이터 작성
+                f.write("[RANGE]\n")
+                f.write(f"X Range: {x_min:.3f} to {x_max:.3f} μm\n")
+                f.write(f"Y Range: {y_min:.3f} to {y_max:.3f} μm\n\n")
+
+                f.write("[STEPS]\n")
+                f.write(f"X Steps: {x_steps}\n")
+                f.write(f"Y Steps: {y_steps}\n\n")
+
+                # 2. 데이터 라인 작성
+                f.write("[PL_DATA]\n")
+                f.write("X (μm), Y (μm), Count\n")
+                
+                for j, y_val in enumerate(y_arr):
+                    for i, x_val in enumerate(x_arr):
+                        pl_val = self._latest_pl_data[j, i]
+                        # 결측치(NaN) 방어
+                        if np.isnan(pl_val):
+                            pl_val = 0.0
+                        f.write(f"{x_val:.3f}, {y_val:.3f}, {pl_val:.3f}\n")
+
+            self.left_panel.lbl_scan_info.setText(f"Exported: {filepath}")
+            self.left_panel.lbl_scan_info.setStyleSheet("color: green;")
+        except Exception as e:
+            self.left_panel.lbl_scan_info.setText(f"Export Error: {e}")
+            self.left_panel.lbl_scan_info.setStyleSheet("color: red;")
+
+    def handle_save_image(self):
+        """현재 CenterPlotWidget의 PL 맵 플롯의 레이블을 수정하고 PNG 이미지로 저장한다."""
+        if self._latest_pl_data is None:
+            self.left_panel.lbl_scan_info.setText("Error: 저장할 이미지 데이터가 없음.")
+            self.left_panel.lbl_scan_info.setStyleSheet("color: red;")
+            return
+
+        from PyQt5.QtWidgets import QDialog, QFormLayout, QLineEdit, QDialogButtonBox, QFileDialog
+        
+        # 1. 텍스트 입력을 위한 커스텀 다이얼로그 생성
+        dialog = QDialog(self.main_window)
+        dialog.setWindowTitle("Set Plot Labels & Title")
+        layout = QFormLayout(dialog)
+        
+        # 현재 플롯에 설정된 값들을 기본값으로 가져오기
+        current_title = self.center_panel.ax_hist.get_title()
+        current_xlabel = self.center_panel.ax_hist.get_xlabel()
+        current_ylabel = self.center_panel.ax_hist.get_ylabel()
+        
+        # 기본값이 비어있으면 초기 권장값 설정
+        if not current_xlabel: current_xlabel = "X (μm)"
+        if not current_ylabel: current_ylabel = "Y (μm)"
+        
+        le_title = QLineEdit(current_title)
+        le_xlabel = QLineEdit(current_xlabel)
+        le_ylabel = QLineEdit(current_ylabel)
+        
+        layout.addRow("Plot Title:", le_title)
+        layout.addRow("X-axis Label:", le_xlabel)
+        layout.addRow("Y-axis Label:", le_ylabel)
+        
+        # Ok / Cancel 버튼 생성 및 연결
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+        
+        # 사용자가 취소(Cancel)를 누르거나 창을 닫으면 저장 프로세스 중단
+        if dialog.exec_() != QDialog.Accepted:
+            return 
+            
+        # 2. 다이얼로그에서 입력받은 값으로 실제 Matplotlib 축(Axis) 업데이트
+        self.center_panel.ax_hist.set_title(le_title.text(), fontsize=12)
+        self.center_panel.ax_hist.set_xlabel(le_xlabel.text())
+        self.center_panel.ax_hist.set_ylabel(le_ylabel.text())
+        self.center_panel.canvas.draw()
+        
+        # 3. 파일 저장 경로 탐색기 팝업
+        options = QFileDialog.Options()
+        filepath, _ = QFileDialog.getSaveFileName(
+            self.main_window, 
+            "Save Plot Image", 
+            "", 
+            "PNG Images (*.png);;JPEG Images (*.jpg);;All Files (*)", 
+            options=options
+        )
+        
+        # 4. 이미지 저장 (고해상도 300 DPI, 여백 제거)
+        if filepath:
+            try:
+                self.center_panel.figure.savefig(filepath, dpi=300, bbox_inches='tight')
+                self.left_panel.lbl_scan_info.setText(f"Image Saved: {filepath.split('/')[-1]}")
+                self.left_panel.lbl_scan_info.setStyleSheet("color: green;")
+            except Exception as e:
+                self.left_panel.lbl_scan_info.setText(f"Save Image Error: {e}")
+                self.left_panel.lbl_scan_info.setStyleSheet("color: red;")
+
+    def handle_import_data(self):
+        """저장된 PL 맵 데이터(구형 메타데이터 포함)를 불러와서 화면에 플롯한다."""
+        from PyQt5.QtWidgets import QFileDialog
+        import numpy as np
+
+        options = QFileDialog.Options()
+        filepath, _ = QFileDialog.getOpenFileName(
+            self.main_window, 
+            "Load PL Data", 
+            "", 
+            "Text Files (*.txt);;CSV Files (*.csv);;All Files (*)", 
+            options=options
+        )
+
+        if not filepath:
+            return
+
+        in_section = None
+        pl_data_list = []
+        x_min, x_max, y_min, y_max = None, None, None, None
+        x_steps, y_steps = None, None
+
+        try:
+            # 1. 인코딩 호환성 처리 (cp949, utf-8-sig 등)
+            for enc in ("utf-8-sig", "cp949", "latin-1"):
+                try:
+                    with open(filepath, "r", encoding=enc) as file:
+                        lines = file.readlines()
+                    break
+                except UnicodeDecodeError:
+                    continue
+            else:
+                raise UnicodeDecodeError("utf-8", b"", 0, 1, "파일 인코딩 감지 실패")
+
+            # 2. 파일 파싱
+            for line in lines:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+
+                if line.startswith("[") and line.endswith("]"):
+                    in_section = line
+                    continue
+
+                if in_section == "[RANGE]":
+                    if "X Range" in line:
+                        parts = line.split(":")[1].replace("μm", "").strip().split("to")
+                        x_min, x_max = map(float, parts)
+                    elif "Y Range" in line:
+                        parts = line.split(":")[1].replace("μm", "").strip().split("to")
+                        y_min, y_max = map(float, parts)
+
+                elif in_section == "[STEPS]":
+                    if "X Steps" in line:
+                        x_steps = int(line.split(":")[1].strip())
+                    elif "Y Steps" in line:
+                        y_steps = int(line.split(":")[1].strip())
+
+                elif in_section == "[PL_DATA]":
+                    if "X (" in line or "Count" in line:
+                        continue
+                    try:
+                        x, y, value = map(float, line.split(","))
+                        pl_data_list.append([x, y, value])
+                    except ValueError:
+                        continue # 빈 줄이나 포맷 깨진 줄 무시
+
+            if not pl_data_list:
+                raise ValueError("PL 데이터가 비어있거나 파일이 손상됨.")
+
+            # 3. 데이터 그리드 재조립 (네가 짰던 딕셔너리 매핑 방식 재활용)
+            unique_x = np.unique([d[0] for d in pl_data_list])
+            unique_y = np.unique([d[1] for d in pl_data_list])
+            
+            # 파라미터에서 step을 못 읽었다면 실제 데이터 길이로 덮어쓰기
+            actual_x_steps = len(unique_x)
+            actual_y_steps = len(unique_y)
+
+            pl_data_grid = np.full((actual_y_steps, actual_x_steps), np.nan)
+            x_map = {v: i for i, v in enumerate(unique_x)}
+            y_map = {v: i for i, v in enumerate(unique_y)}
+
+            for x, y, value in pl_data_list:
+                pl_data_grid[y_map[y], x_map[x]] = value
+
+            # 4. 캐싱 및 UI 업데이트
+            self._latest_pl_data = pl_data_grid
+            
+            # 메타데이터에 min/max가 없었을 경우 실제 데이터 기준 산출
+            if None in (x_min, x_max, y_min, y_max):
+                self._latest_extent = (unique_x.min(), unique_x.max(), unique_y.min(), unique_y.max())
+            else:
+                self._latest_extent = (x_min, x_max, y_min, y_max)
+
+            # 좌측 패널 입력창 파라미터 동기화
+            self.left_panel.le_x_min.setText(f"{self._latest_extent[0]:.3f}")
+            self.left_panel.le_x_max.setText(f"{self._latest_extent[1]:.3f}")
+            self.left_panel.le_y_min.setText(f"{self._latest_extent[2]:.3f}")
+            self.left_panel.le_y_max.setText(f"{self._latest_extent[3]:.3f}")
+            self.left_panel.le_x_steps.setText(str(actual_x_steps))
+            self.left_panel.le_y_steps.setText(str(actual_y_steps))
+
+            self.center_panel.update_pl_plot(self._latest_pl_data, self._latest_extent)
+            
+            self.left_panel.lbl_scan_info.setText(f"Imported: {filepath.split('/')[-1]}")
+            self.left_panel.lbl_scan_info.setStyleSheet("color: blue;")
+
+        except Exception as e:
+            self.left_panel.lbl_scan_info.setText(f"Import Error: {e}")
+            self.left_panel.lbl_scan_info.setStyleSheet("color: red;")
+            print(f"[Import Error Traceback] {e}")
+        """저장된 PL 맵 데이터(구형 메타데이터 포함)를 불러와서 화면에 플롯한다."""
+        from PyQt5.QtWidgets import QFileDialog
+        import numpy as np
+
+        options = QFileDialog.Options()
+        filepath, _ = QFileDialog.getOpenFileName(
+            self.main_window, 
+            "Load PL Data", 
+            "", 
+            "Text Files (*.txt);;CSV Files (*.csv);;All Files (*)", 
+            options=options
+        )
+
+        if not filepath:
+            return
+
+        in_section = None
+        pl_data_list = []
+        x_min, x_max, y_min, y_max = None, None, None, None
+        x_steps, y_steps = None, None
+
+        try:
+            # 1. 인코딩 호환성 처리 (cp949, utf-8-sig 등)
+            for enc in ("utf-8-sig", "cp949", "latin-1"):
+                try:
+                    with open(filepath, "r", encoding=enc) as file:
+                        lines = file.readlines()
+                    break
+                except UnicodeDecodeError:
+                    continue
+            else:
+                raise UnicodeDecodeError("utf-8", b"", 0, 1, "파일 인코딩 감지 실패")
+
+            # 2. 파일 파싱
+            for line in lines:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+
+                if line.startswith("[") and line.endswith("]"):
+                    in_section = line
+                    continue
+
+                if in_section == "[RANGE]":
+                    if "X Range" in line:
+                        parts = line.split(":")[1].replace("μm", "").strip().split("to")
+                        x_min, x_max = map(float, parts)
+                    elif "Y Range" in line:
+                        parts = line.split(":")[1].replace("μm", "").strip().split("to")
+                        y_min, y_max = map(float, parts)
+
+                elif in_section == "[STEPS]":
+                    if "X Steps" in line:
+                        x_steps = int(line.split(":")[1].strip())
+                    elif "Y Steps" in line:
+                        y_steps = int(line.split(":")[1].strip())
+
+                elif in_section == "[PL_DATA]":
+                    if "X (" in line or "Count" in line:
+                        continue
+                    try:
+                        x, y, value = map(float, line.split(","))
+                        pl_data_list.append([x, y, value])
+                    except ValueError:
+                        continue # 빈 줄이나 포맷 깨진 줄 무시
+
+            if not pl_data_list:
+                raise ValueError("PL 데이터가 비어있거나 파일이 손상됨.")
+
+            # 3. 데이터 그리드 재조립 (네가 짰던 딕셔너리 매핑 방식 재활용)
+            unique_x = np.unique([d[0] for d in pl_data_list])
+            unique_y = np.unique([d[1] for d in pl_data_list])
+            
+            # 파라미터에서 step을 못 읽었다면 실제 데이터 길이로 덮어쓰기
+            actual_x_steps = len(unique_x)
+            actual_y_steps = len(unique_y)
+
+            pl_data_grid = np.full((actual_y_steps, actual_x_steps), np.nan)
+            x_map = {v: i for i, v in enumerate(unique_x)}
+            y_map = {v: i for i, v in enumerate(unique_y)}
+
+            for x, y, value in pl_data_list:
+                pl_data_grid[y_map[y], x_map[x]] = value
+
+            # 4. 캐싱 및 UI 업데이트
+            self._latest_pl_data = pl_data_grid
+            
+            # 메타데이터에 min/max가 없었을 경우 실제 데이터 기준 산출
+            if None in (x_min, x_max, y_min, y_max):
+                self._latest_extent = (unique_x.min(), unique_x.max(), unique_y.min(), unique_y.max())
+            else:
+                self._latest_extent = (x_min, x_max, y_min, y_max)
+
+            # 좌측 패널 입력창 파라미터 동기화
+            self.left_panel.le_x_min.setText(f"{self._latest_extent[0]:.3f}")
+            self.left_panel.le_x_max.setText(f"{self._latest_extent[1]:.3f}")
+            self.left_panel.le_y_min.setText(f"{self._latest_extent[2]:.3f}")
+            self.left_panel.le_y_max.setText(f"{self._latest_extent[3]:.3f}")
+            self.left_panel.le_x_steps.setText(str(actual_x_steps))
+            self.left_panel.le_y_steps.setText(str(actual_y_steps))
+
+            self.center_panel.update_pl_plot(self._latest_pl_data, self._latest_extent)
+            
+            self.left_panel.lbl_scan_info.setText(f"Imported: {filepath.split('/')[-1]}")
+            self.left_panel.lbl_scan_info.setStyleSheet("color: blue;")
+
+        except Exception as e:
+            self.left_panel.lbl_scan_info.setText(f"Import Error: {e}")
+            self.left_panel.lbl_scan_info.setStyleSheet("color: red;")
+            print(f"[Import Error Traceback] {e}")
 
     def _on_scan_finished(self, success, result_msg):
             """스캔 루프가 종료(정상 완료 또는 에러/중단)되었을 때 호출됨"""
