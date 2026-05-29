@@ -62,7 +62,7 @@ class PiezoWorker(QObject):
             self.sig_message.emit("error", "Piezo is not initialized.")
             return
 
-        # 1. 방어: 통신 충돌을 막기 위해 100ms 폴링 타이머를 즉각 일시정지
+            # 1. 방어: 통신 충돌을 막기 위해 100ms 폴링 타이머를 즉각 일시정지
         if self.poll_timer and self.poll_timer.isActive():
             self.poll_timer.stop()
 
