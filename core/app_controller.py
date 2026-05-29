@@ -315,14 +315,14 @@ class AppController(QObject):
                 self.left_panel.lbl_scan_info.setText("Scan aborted/failed.")
                 self.left_panel.lbl_scan_info.setStyleSheet("color: red;")
 
-        def _on_worker_message(self, level, msg):
-            """워커에서 보내는 일반 상태 메시지 처리"""
-            if level == "error":
-                self.left_panel.lbl_scan_info.setText(f"Error: {msg}")
-                self.left_panel.lbl_scan_info.setStyleSheet("color: red;")
-            else:
-                self.left_panel.lbl_scan_info.setText(msg)
-                self.left_panel.lbl_scan_info.setStyleSheet("color: gray;")
+    def _on_worker_message(self, level, msg):
+        """워커에서 보내는 일반 상태 메시지 처리"""
+        if level == "error":
+            self.left_panel.lbl_scan_info.setText(f"Error: {msg}")
+            self.left_panel.lbl_scan_info.setStyleSheet("color: red;")
+        else:
+            self.left_panel.lbl_scan_info.setText(msg)
+            self.left_panel.lbl_scan_info.setStyleSheet("color: gray;")
 
     def shutdown(self):
         """애플리케이션 종료 시 호출되어 모든 스레드를 안전하게 정리한다."""

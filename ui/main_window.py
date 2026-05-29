@@ -19,7 +19,7 @@ class DAQMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("QNP galvo control and scanning ver4.0 (PyQt5)")
-        self.resize(1500, 900)
+        self.resize(1650, 970)
 
         self._last_winspec_data = None  # (x_array, y_array) 튜플 형태로 저장할 예정
         self._last_ph_hist_data = None  # (t_array, counts_array) 튜플 형태로 저장할 예정
@@ -41,7 +41,7 @@ class DAQMainWindow(QMainWindow):
         main_splitter.addWidget(self.center_panel)
         main_splitter.addWidget(self.right_panel)
 
-        main_splitter.setSizes([300, 900, 300])
+        main_splitter.setSizes([550, 1000, 100])
         main_splitter.setHandleWidth(4)
 
         self.setCentralWidget(main_splitter)

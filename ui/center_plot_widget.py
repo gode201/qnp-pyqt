@@ -111,3 +111,30 @@ class CenterPlotWidget(QWidget):
             self._pl_img.set_cmap(cmap)
 
         self.canvas.draw_idle()
+    
+    def update_spectrum_plot(self, x_data, y_data, title="WinSpec Spectrum"):
+        """
+        WinSpec 스펙트럼 데이터를 우측 상단 플롯에 업데이트하는 메서드.
+        히스토그램과 축을 공유하므로 스케일과 라벨을 재설정해야 함.
+        """
+        self.ax_hist.clear()
+        self.ax_hist.set_title(title, fontsize=9)
+        self.ax_hist.set_xlabel("Wavelength / Pixel", fontsize=8)
+        self.ax_hist.set_ylabel("Intensity", fontsize=8)
+        self.ax_hist.tick_params(labelsize=7)
+        
+        # 스펙트럼은 일반적으로 선형(linear) 스케일을 사용함
+        self.ax_hist.set_yscale("linear")
+        
+        if len(x_data) > 0 and len(y_data) > 0:
+            self.ax_hist.plot(x_data, y_data, color='crimson', lw=1)
+            self.ax_hist.set_xlim(min(x_data), max(x_data))
+            
+            # y축 상단 여백 확보
+            y_max = max(y_data)
+            self.ax_hist.set_ylim(min(y_data), y_max + (y_max * 0.1) if y_max != 0 else 1)
+        else:
+            # 데이터가 비어있을 경우의 기본 화면
+            self.ax_hist.plot([0], [0], color='crimson', lw=1)
+            
+        self.canvas.draw_idle()
