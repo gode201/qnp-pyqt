@@ -16,7 +16,7 @@ except ModuleNotFoundError:
 class PLScanWorker(QObject):
 
     """
-    Galvo 제어(AO)와 APD 읽기(CI)를 동기화하여 2D/3D 이미지를 생성하는 완전 독립 Worker.
+    Galvo 제어(AO)와 APD 읽기(CI)를 동기화하여 2D/3D 이미지를 생성하는 완전 독립 Worker. Galvo의 단발적 컨트롤에 대한 worker는 하단에 별도로 존재
     UI 객체(GUI)에 대한 참조를 일절 가지지 않는다.
     """
     # -------------------------------------------------------------------------
@@ -248,3 +248,39 @@ class ContinuousAPDWorker(QObject):
     def stop_counting(self):
         """루프 플래그를 해제하여 안전하게 스레드를 종료시킨다."""
         self._is_running = False
+
+class GalvoWorker(QObject):
+    """
+    단발성 Galvo X, Y 위치 이동을 처리하는 전용 Worker. PL scanner는 스캔 루프가 무겁기 때문에 별도의 worker로 분리 상단에 존재.
+    메인 스레드를 블로킹하지 않기 위해 독립된 QThread에서 실행된다.
+    """
+    sig_message = pyqtSignal(str, str) # level, message
+    sig_moved = pyqtSignal(float, float) # x_um, y_um
+
+    def __init__(self):
+        super().__init__()
+
+    @pyqtSlot(float, float)
+    def move_to(self, x_um, y_um):
+        if not _NIDAQMX_AVAILABLE:
+            self.sig_message.emit("error", "nidaqmx is not available. Galvo move disabled.")
+            return
+
+        try:
+            import nidaqmx
+            
+            # Default.py에서 임포트한 상수를 사용
+            x_v = x_um / UNIT_CONVERSION_FACTOR
+            y_v = y_um / UNIT_CONVERSION_FACTOR
+            
+            with nidaqmx.Task() as task:
+                task.ao_channels.add_ao_voltage_chan("Dev2/ao0", min_val=-10.0, max_val=10.0)
+                task.ao_channels.add_ao_voltage_chan("Dev2/ao1", min_val=-10.0, max_val=10.0)
+                # 다중 채널이므로 리스트 형태로 한 번에 write
+                task.write([x_v, y_v], auto_start=True)
+                
+            self.sig_moved.emit(x_um, y_um)
+            self.sig_message.emit("info", f"[Moved] X={x_um:.2f}μm, Y={y_um:.2f}μm")
+            
+        except Exception as e:
+            self.sig_message.emit("error", f"Galvo Move Error: {e}")

@@ -8,7 +8,8 @@ from ui.left_panel_widget import LeftPanelWidget
 from ui.center_plot_widget import CenterPlotWidget
 from ui.right_panel_widget import RightPanelWidget
 
-# 하드웨어 워커들 (현재 WinSpec만 완성됨)
+# 하드웨어 워커들
+from core.daq_workers import PLScanWorker, ContinuousAPDWorker, GalvoWorker
 from core.winspec_worker import WinSpecWorker
 from core.daq_workers import PLScanWorker, ContinuousAPDWorker         
 # from core.picoharp_worker import PicoHarpWorker 
@@ -58,6 +59,16 @@ class AppController(QObject):
         self.apd_thread.start()
 
         # 3. PicoHarp Worker 초기화 (예정)
+
+        # 4. Galvo Move Worker 초기화
+        self.galvo_thread = QThread()
+        self.galvo_worker = GalvoWorker()
+        self.galvo_worker.moveToThread(self.galvo_thread)
+        
+        # GalvoWorker의 메시지를 UI에 연결
+        self.galvo_worker.sig_message.connect(self._on_worker_message)
+        
+        self.galvo_thread.start()
 
     def _get_current_scan_params(self):
         """UI에서 스캔 파라미터를 추출하여 딕셔너리로 반환한다. 변환 실패 시 None 반환."""
@@ -193,16 +204,21 @@ class AppController(QObject):
     # Manual Move Handlers
     # -------------------------------------------------------------------------
     def handle_galvo_move(self):
-        """Galvo X, Y 수동 이동 명령"""
-        try:
-            x_um = float(self.left_panel.le_galvo_x.text())
-            y_um = float(self.left_panel.le_galvo_y.text())
-            
-            # TODO: 나중에 Main Thread에서 단발성 DAQ AO Task를 실행하거나, 
-            # Galvo 전용 Worker를 만들어 invokeMethod로 넘길 것.
-            print(f"[Move] Galvo 이동: X={x_um}μm, Y={y_um}μm")
-        except ValueError:
-            pass
+            """Galvo X, Y 수동 이동 명령"""
+            from PyQt5.QtCore import QMetaObject, Qt, Q_ARG
+            try:
+                x_um = float(self.left_panel.le_galvo_x.text())
+                y_um = float(self.left_panel.le_galvo_y.text())
+                
+                # GalvoWorker의 move_to 슬롯으로 비동기 명령 하달
+                QMetaObject.invokeMethod(
+                    self.galvo_worker, "move_to", 
+                    Qt.QueuedConnection, 
+                    Q_ARG(float, x_um), Q_ARG(float, y_um)
+                )
+            except ValueError:
+                self.left_panel.lbl_scan_info.setText("Error: 좌표는 숫자여야 함.")
+                self.left_panel.lbl_scan_info.setStyleSheet("color: red;")
 
     def handle_galvo_set_zero(self):
         self.left_panel.le_galvo_x.setText("0.0")
@@ -375,6 +391,7 @@ class AppController(QObject):
                 print(f"[shutdown] {name} cleanup error: {e}")
 
         _stop_thread(getattr(self, 'apd_thread',  None), "apd_thread")
+        _stop_thread(getattr(self, 'galvo_thread', None), "galvo_thread")
         _stop_thread(getattr(self, 'scan_thread', None), "scan_thread")
         _stop_thread(getattr(self, 'ws_thread',   None), "ws_thread")
         # _stop_thread(getattr(self, 'ph_thread', None), "ph_thread")  # 예정
