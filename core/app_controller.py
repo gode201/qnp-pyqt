@@ -68,7 +68,7 @@ class AppController(QObject):
         self.ph_worker.moveToThread(self.ph_thread)
 
         # 1) 히스토그램 데이터 -> 센터 플롯
-        self.ph_worker.sig_histogram_updated.connect(self.center_panel.update_histogram)
+        self.ph_worker.sig_histogram_updated.connect(self._on_ph_histogram_updated)
         # 2) 메시지 -> 좌측 패널 정보창
         self.ph_worker.sig_message.connect(self._on_worker_message)
         # 3) Count Rate -> 우측 패널 라벨 업데이트
@@ -174,7 +174,15 @@ class AppController(QObject):
         # 🟢 메인 윈도우에서 낚아챈 전역 화살표 키 시그널 연결 추가
         self.main_window.sig_arrow_pressed.connect(self.handle_galvo_arrow)
 
-
+    def _on_ph_histogram_updated(self, time_bins, counts):
+        """PicoHarp 데이터를 메인 윈도우에 캐싱하고, 뷰 모드가 일치할 때만 플롯을 갱신한다."""
+        # 1. 데이터 캐싱 (나중에 뷰를 전환했을 때 복구하기 위함)
+        self.main_window._last_ph_hist_data = (time_bins, counts)
+        
+        # 2. 현재 우측 패널의 라디오 버튼 상태 확인
+        # PicoHarp 모드일 때만 실시간으로 화면을 갱신함
+        if self.right_panel.radio_view_ph.isChecked():
+            self.center_panel.update_histogram(time_bins, counts)
 
     def _connect_workers_to_ui(self):
         # WinSpec

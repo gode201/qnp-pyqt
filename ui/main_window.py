@@ -77,22 +77,20 @@ class DAQMainWindow(QMainWindow):
     def _on_view_mode_changed(self, mode: str):
         """라디오 버튼 토글 시 호출되어 중앙 플롯을 캐싱된 데이터로 덮어씌움"""
         if mode == "winspec":
-            if self._last_winspec_data is not None:
+            if getattr(self, '_last_winspec_data', None) is not None:
                 x, y = self._last_winspec_data
                 self.center_panel.update_spectrum_plot(x, y)
             else:
                 # 데이터가 없을 경우 빈 축과 안내 타이틀 렌더링
-                self.center_panel.update_spectrum_plot([], [], title="WinSpec Spectrum (No Data)")
+                self.center_panel.update_spectrum_plot([], [], title="WinSpec Spectrum")
                 
         elif mode == "picoharp":
-            if self._last_ph_hist_data is not None:
+            if getattr(self, '_last_ph_hist_data', None) is not None:
                 t, counts = self._last_ph_hist_data
-                # 주의: center_plot_widget에 이 메서드가 아직 없다면 구현해야 해
-                self.center_panel.update_histogram_plot(t, counts)
+                self.center_panel.update_histogram(t, counts)
             else:
-                # 임시 더미 데이터로 빈 히스토그램 축 복원
-                # update_histogram_plot 메서드 내부 구현에 맞춰 호출할 것
-                pass
+                # 데이터가 없을 경우 기본 히스토그램 축 렌더링
+                self.center_panel.update_histogram([], [])
 
     def keyPressEvent(self, event):
         """
