@@ -3,6 +3,7 @@ import matplotlib
 matplotlib.use('Qt5Agg')
 
 from PyQt5.QtWidgets import QWidget, QVBoxLayout
+from PyQt5.QtCore import pyqtSignal
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.gridspec as gridspec
@@ -13,6 +14,9 @@ class CenterPlotWidget(QWidget):
     Matplotlib 기반의 데이터 시각화를 전담하는 독립 위젯.
     외부 컴포넌트는 axes에 직접 접근하지 않고, 제공되는 메서드를 통해서만 플롯을 업데이트해야 함.
     """
+
+    sig_map_clicked = pyqtSignal(float, float)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._setup_ui()
@@ -61,6 +65,7 @@ class CenterPlotWidget(QWidget):
             (0, 0), 1.0, color='cyan', fill=False, lw=2, zorder=10
         )
         self.ax2.add_patch(self.galvo_indicator)
+        self.canvas.mpl_connect('button_press_event', self._on_canvas_clicked)
 
         # Colorbar 초기화 (Dummy 데이터)
         dummy = plt.cm.ScalarMappable(cmap='gist_heat')
@@ -137,4 +142,15 @@ class CenterPlotWidget(QWidget):
             # 데이터가 비어있을 경우의 기본 화면
             self.ax_hist.plot([0], [0], color='crimson', lw=1)
             
+        self.canvas.draw_idle()
+
+    def _on_canvas_clicked(self, event):
+        """ax2(PL 맵) 영역 내부를 '좌클릭(button 1)' 했을 때만 좌표를 방출한다."""
+        if event.inaxes == self.ax2 and event.button == 1:
+            if event.xdata is not None and event.ydata is not None:
+                self.sig_map_clicked.emit(event.xdata, event.ydata)
+
+    def update_galvo_indicator(self, x_um, y_um):
+        """Galvo 하드웨어가 실제로 이동을 완료했을 때 호출되어 원의 위치를 갱신한다."""
+        self.galvo_indicator.center = (x_um, y_um)
         self.canvas.draw_idle()

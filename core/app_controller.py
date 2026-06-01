@@ -133,6 +133,26 @@ class AppController(QObject):
         # self.right_panel.btn_ph_start.clicked.connect(self.handle_ph_start)
         
 
+        # ==========================================
+        # Center Panel (Scan map click/ galvo) -> Controller
+        # ==========================================
+        self.center_panel.sig_map_clicked.connect(self.handle_map_clicked)
+        self.left_panel.btn_up.clicked.connect(lambda: self.handle_galvo_arrow('up'))
+        self.left_panel.btn_down.clicked.connect(lambda: self.handle_galvo_arrow('down'))
+        self.left_panel.btn_left.clicked.connect(lambda: self.handle_galvo_arrow('left'))
+        self.left_panel.btn_right.clicked.connect(lambda: self.handle_galvo_arrow('right'))
+
+
+        self.left_panel.btn_up.clicked.connect(lambda: self.handle_galvo_arrow('up'))
+        self.left_panel.btn_down.clicked.connect(lambda: self.handle_galvo_arrow('down'))
+        self.left_panel.btn_left.clicked.connect(lambda: self.handle_galvo_arrow('left'))
+        self.left_panel.btn_right.clicked.connect(lambda: self.handle_galvo_arrow('right'))
+        
+        # 🟢 메인 윈도우에서 낚아챈 전역 화살표 키 시그널 연결 추가
+        self.main_window.sig_arrow_pressed.connect(self.handle_galvo_arrow)
+
+
+
     def _connect_workers_to_ui(self):
         # WinSpec
         self.ws_worker.sig_connected.connect(self._on_ws_connected)
@@ -144,6 +164,9 @@ class AppController(QObject):
         self.scan_worker.sig_scan_progress.connect(self._on_scan_progress)
         self.scan_worker.sig_scan_finished.connect(self._on_scan_finished)
         self.scan_worker.sig_message.connect(self._on_worker_message)
+
+        # Galvo가 물리적 이동을 마치면(sig_moved), Center Panel의 원을 업데이트하도록 연동
+        self.galvo_worker.sig_moved.connect(self.center_panel.update_galvo_indicator)
 
         # APD (데이터 스트림만)
         self.apd_worker.sig_counts_updated.connect(self.apd_window.update_plot)
@@ -245,10 +268,8 @@ class AppController(QObject):
 
         
     def _on_apd_window_closed(self):
-        """APD 창의 X 버튼을 누르거나 코드로 close() 했을 때 상태 복구 및 스레드 종료"""
-       
-        if getattr(self.apd_worker, '_is_running', False):
-            QMetaObject.invokeMethod(self.apd_worker, "stop_counting", Qt.QueuedConnection)
+        """APD 창의 X 버튼을 누르거나 코드로 close() 했을 때 상태 복구 및 스레드 종료"""        
+        QMetaObject.invokeMethod(self.apd_worker, "stop_counting", Qt.QueuedConnection)
             
         # UI 상태 원복
         self.left_panel.btn_apd_count.setText("APD Count")
@@ -257,7 +278,7 @@ class AppController(QObject):
     def handle_apd_count_toggle(self):
             """APD Count 창을 띄우고 폴링 스레드를 제어한다."""
             
-            if getattr(self.apd_worker, '_is_running', False):
+            if self.apd_window.isVisible():
                 # 이미 실행 중이면 창을 닫는다. (창이 닫히면 _on_apd_window_closed가 연쇄적으로 호출됨)
                 self.apd_window.close()
             else:
@@ -275,7 +296,7 @@ class AppController(QObject):
                 except ValueError:
                     expo = 0.1
                     
-                self.left_panel.btn_apd_count.setText("Stop APD")
+                self.left_panel.btn_apd_count.setText("Stop Counting")
                 self.main_window.status_left_label.setText("State: apd_counting")
                 QMetaObject.invokeMethod(self.apd_worker, "start_counting", 
                                         Qt.QueuedConnection, Q_ARG(float, expo), Q_ARG(int, 50))
@@ -321,8 +342,8 @@ class AppController(QObject):
     def handle_export_data(self):
         """현재 캐싱된 PL 맵 데이터를 구형 호환 포맷([RANGE], [STEPS], [PL_DATA])으로 내보낸다."""
         if self._latest_pl_data is None or self._latest_extent is None:
-            self.left_panel.lbl_scan_info.setText("Error: 내보낼 데이터가 없음.")
-            self.left_panel.lbl_scan_info.setStyleSheet("color: red;")
+            self.left_panel.lbl_image_info.setText("Error: 내보낼 데이터가 없음.")
+            self.left_panel.lbl_image_info.setStyleSheet("color: red;")
             return
 
         from PyQt5.QtWidgets import QFileDialog
@@ -370,17 +391,17 @@ class AppController(QObject):
                             pl_val = 0.0
                         f.write(f"{x_val:.3f}, {y_val:.3f}, {pl_val:.3f}\n")
 
-            self.left_panel.lbl_scan_info.setText(f"Exported: {filepath}")
-            self.left_panel.lbl_scan_info.setStyleSheet("color: green;")
+            self.left_panel.lbl_image_info.setText(f"Exported: {filepath}")
+            self.left_panel.lbl_image_info.setStyleSheet("color: green;")
         except Exception as e:
-            self.left_panel.lbl_scan_info.setText(f"Export Error: {e}")
-            self.left_panel.lbl_scan_info.setStyleSheet("color: red;")
+            self.left_panel.lbl_image_info.setText(f"Export Error: {e}")
+            self.left_panel.lbl_image_info.setStyleSheet("color: red;")
 
     def handle_save_image(self):
         """현재 CenterPlotWidget의 PL 맵(ax2) 플롯 레이블을 수정하고, PNG 이미지로 잘라서 저장한다."""
         if self._latest_pl_data is None:
-            self.left_panel.lbl_scan_info.setText("Error: 저장할 이미지 데이터가 없음.")
-            self.left_panel.lbl_scan_info.setStyleSheet("color: red;")
+            self.left_panel.lbl_image_info.setText("Error: 저장할 이미지 데이터가 없음.")
+            self.left_panel.lbl_image_info.setStyleSheet("color: red;")
             return
 
         from PyQt5.QtWidgets import QDialog, QFormLayout, QLineEdit, QDialogButtonBox, QFileDialog
@@ -466,8 +487,8 @@ class AppController(QObject):
                 self.center_panel.ax_hist.set_visible(True)
                 self.center_panel.canvas.draw()
 
-                self.left_panel.lbl_scan_info.setText(f"Image Saved: {os.path.basename(filepath)}")
-                self.left_panel.lbl_scan_info.setStyleSheet("color: green;")
+                self.left_panel.lbl_image_info.setText(f"Image Saved: {os.path.basename(filepath)}")
+                self.left_panel.lbl_image_info.setStyleSheet("color: green;")
                 
             except Exception as e:
                 # 에러가 났을 때도 화면이 꺼진 채로 멈추지 않도록 무조건 복구
@@ -475,8 +496,8 @@ class AppController(QObject):
                 self.center_panel.ax_hist.set_visible(True)
                 self.center_panel.canvas.draw()
                 
-                self.left_panel.lbl_scan_info.setText(f"Save Image Error: {e}")
-                self.left_panel.lbl_scan_info.setStyleSheet("color: red;")
+                self.left_panel.lbl_image_info.setText(f"Save Image Error: {e}")
+                self.left_panel.lbl_image_info.setStyleSheet("color: red;")
                 print(f"[Save Image Error Traceback] {e}")
     
     def handle_import_data(self):
@@ -583,12 +604,12 @@ class AppController(QObject):
 
             self.center_panel.update_pl_plot(self._latest_pl_data, self._latest_extent)
             
-            self.left_panel.lbl_scan_info.setText(f"Imported: {filepath.split('/')[-1]}")
-            self.left_panel.lbl_scan_info.setStyleSheet("color: blue;")
+            self.left_panel.lbl_image_info.setText(f"Imported: {filepath.split('/')[-1]}")
+            self.left_panel.lbl_image_info.setStyleSheet("color: blue;")
 
         except Exception as e:
-            self.left_panel.lbl_scan_info.setText(f"Import Error: {e}")
-            self.left_panel.lbl_scan_info.setStyleSheet("color: red;")
+            self.left_panel.lbl_image_info.setText(f"Import Error: {e}")
+            self.left_panel.lbl_image_info.setStyleSheet("color: red;")
             print(f"[Import Error Traceback] {e}")
 
 
@@ -616,7 +637,68 @@ class AppController(QObject):
         else:
             self.left_panel.lbl_scan_info.setText(msg)
             self.left_panel.lbl_scan_info.setStyleSheet("color: gray;")
+    
+    def handle_map_clicked(self, x, y):
+        """PL 맵 클릭 처리: 데이터 Read-out과 하드웨어 이동(조건부)을 분리한다."""
+        # 1. UI 좌표 텍스트 갱신
+        self.left_panel.le_galvo_x.setText(f"{x:.3f}")
+        self.left_panel.le_galvo_y.setText(f"{y:.3f}")
+        
+        # 2. 하드웨어 연결 여부와 무관하게 화면의 파란 원(Indicator) 위치를 즉각 갱신
+        # (오프라인 모드에서의 Optimistic UI Update)
+        self.center_panel.update_galvo_indicator(x, y)
+        
+        # 3. 데이터 Read-out: 현재 화면에 PL 데이터가 로드되어 있다면, 클릭한 좌표의 Count 추출
+        if getattr(self, '_latest_pl_data', None) is not None and getattr(self, '_latest_extent', None) is not None:
+            import numpy as np
+            x_min, x_max, y_min, y_max = self._latest_extent
+            y_steps, x_steps = self._latest_pl_data.shape
+            
+            # 물리적 좌표(um)를 배열의 인덱스(Pixel)로 역산출 (범위 초과 시 가장자리 값으로 클램핑)
+            col = int(np.clip((x - x_min) / (x_max - x_min) * (x_steps - 1) if x_max != x_min else 0, 0, x_steps - 1))
+            row = int(np.clip((y - y_min) / (y_max - y_min) * (y_steps - 1) if y_max != y_min else 0, 0, y_steps - 1))
+            
+            # 클릭한 지점의 Photon Count 값
+            val = self._latest_pl_data[row, col]
+            
+            # Image 탭의 로그 라벨에 좌표와 카운트 수를 예쁘게 쏴준다
+            self.left_panel.lbl_image_info.setText(f"[Point Read] X: {x:.3f}, Y: {y:.3f} | Count: {val:.1f}")
+            self.left_panel.lbl_image_info.setStyleSheet("color: magenta; font-weight: bold;")
+            
+        # 4. 하드웨어 연결 여부 판단 및 제한적 명령 하달
+        # 워커 내부에 _is_connected 상태가 True일 때만 실제 장비 이동 명령을 트리거함
+        is_connected = getattr(self.galvo_worker, '_is_connected', False)
+        
+        if is_connected:
+            self.handle_galvo_move()
+        else:
+            # 오프라인 상태: 장비가 없으니 이동 명령은 무시하고 로그만 한 줄 남김 (필요시 제거 가능)
+            pass
 
+    def handle_galvo_arrow(self, direction):
+        """화살표 키 클릭 시 현재 위치에서 지정된 스텝(Step)만큼 이동한다."""
+        try:
+            x = float(self.left_panel.le_galvo_x.text())
+            y = float(self.left_panel.le_galvo_y.text())
+            
+            # 스텝 사이즈 설정 (현재 UI에 입력란이 없으므로 일단 0.5μm로 고정)
+            # 필요하면 나중에 좌측 패널에 le_galvo_step 같은 위젯을 만들고 연동해.
+            step = 0.5 
+            
+            if direction == 'up': y += step
+            elif direction == 'down': y -= step
+            elif direction == 'left': x -= step
+            elif direction == 'right': x += step
+            
+            self.left_panel.le_galvo_x.setText(f"{x:.3f}")
+            self.left_panel.le_galvo_y.setText(f"{y:.3f}")
+            
+            # 값 변경 후 이동 명령 수행
+            self.handle_galvo_move()
+            
+        except ValueError:
+            self.left_panel.lbl_image_info.setText("Error: Galvo 수동 제어 전 좌표를 확인하라.")
+            self.left_panel.lbl_image_info.setStyleSheet("color: red;")
     def shutdown(self):
         """애플리케이션 종료 시 호출되어 모든 스레드를 안전하게 정리한다."""
 

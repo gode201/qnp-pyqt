@@ -1,8 +1,8 @@
 import sys
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QSplitter,
                              QVBoxLayout, QTabWidget, QScrollArea, QLabel, QStatusBar)
-from PyQt5.QtCore import Qt
 
+from PyQt5.QtCore import Qt, pyqtSignal
 # -----------------------------------------------------------------------------
 # Placeholder Classes (ui/ 디렉토리 하위로 분리된 모듈들)
 # -----------------------------------------------------------------------------
@@ -16,6 +16,8 @@ from ui.right_panel_widget import RightPanelWidget
 # -----------------------------------------------------------------------------
 
 class DAQMainWindow(QMainWindow):
+    sig_arrow_pressed = pyqtSignal(str)
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("QNP galvo control and scanning ver4.0 (PyQt5)")
@@ -36,6 +38,16 @@ class DAQMainWindow(QMainWindow):
         self.left_panel = LeftPanelWidget()
         self.center_panel = CenterPlotWidget()
         self.right_panel = RightPanelWidget()
+
+        # [레이아웃 고정 및 크래시 방지 로직]
+        # Matplotlib 캔버스가 0 이하로 찌그러지는 치명적 에러를 원천 차단
+        self.center_panel.setMinimumWidth(500)
+        
+        # 좌/우 제어 패널이 화면을 다 잡아먹지 못하게 최소/최대 폭을 엄격히 고정
+        self.left_panel.setMinimumWidth(450)
+        self.left_panel.setMaximumWidth(550)
+        self.right_panel.setMinimumWidth(300)
+        self.right_panel.setMaximumWidth(350)
 
         main_splitter.addWidget(self.left_panel)
         main_splitter.addWidget(self.center_panel)
@@ -81,3 +93,31 @@ class DAQMainWindow(QMainWindow):
                 # 임시 더미 데이터로 빈 히스토그램 축 복원
                 # update_histogram_plot 메서드 내부 구현에 맞춰 호출할 것
                 pass
+
+    def keyPressEvent(self, event):
+        """
+        키보드 이벤트를 전역에서 낚아챈다. 
+        단, QLineEdit(텍스트 입력창)에 포커스가 없을 때만 Galvo를 움직인다.
+        """
+        from PyQt5.QtWidgets import QLineEdit
+        
+        # 현재 포커스를 가진 위젯이 텍스트 입력창이면, 방향키를 글자 편집용으로 양보함
+        if isinstance(self.focusWidget(), QLineEdit):
+            super().keyPressEvent(event)
+            return
+
+        # 그 외의 상태에서는 방향키를 무조건 Galvo 컨트롤용으로 강제 할당
+        if event.key() == Qt.Key_Up:
+            self.sig_arrow_pressed.emit('up')
+            event.accept()
+        elif event.key() == Qt.Key_Down:
+            self.sig_arrow_pressed.emit('down')
+            event.accept()
+        elif event.key() == Qt.Key_Left:
+            self.sig_arrow_pressed.emit('left')
+            event.accept()
+        elif event.key() == Qt.Key_Right:
+            self.sig_arrow_pressed.emit('right')
+            event.accept()
+        else:
+            super().keyPressEvent(event)        

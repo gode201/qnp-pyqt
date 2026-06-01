@@ -27,6 +27,8 @@ class LeftPanelWidget(QWidget):
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         
+        scroll_area.setFocusPolicy(Qt.NoFocus) 
+        
         scroll_content = QWidget()
         self.scroll_layout = QVBoxLayout(scroll_content)
         self.scroll_layout.setSpacing(10)
@@ -139,6 +141,12 @@ class LeftPanelWidget(QWidget):
         # 정보 레이블
         self.lbl_scan_info = QLabel("No data")
         self.lbl_scan_info.setStyleSheet("color: blue; font-size: 11px;")
+
+        # 가로 폭이 꽉 차면 자동으로 줄바꿈을 수행한다.
+        self.lbl_scan_info.setWordWrap(True)
+        # 2~3줄이 써져도 UI가 위아래로 출렁이지 않도록 최소 세로 공간 확보
+        self.lbl_scan_info.setMinimumHeight(45)
+
         layout.addWidget(self.lbl_scan_info)
 
         # Drift Correction Group
@@ -163,35 +171,44 @@ class LeftPanelWidget(QWidget):
         layout.addStretch()
 
     def _build_image_tab(self):
-            layout = QFormLayout(self.image_tab)
-            
-            self.chk_cb_lock = QCheckBox("Lock Colorbar")
-            self.le_cb_max = QLineEdit("1")
-            self.le_cb_min = QLineEdit("0")
-            self.le_cb_max.setEnabled(False)
-            self.le_cb_min.setEnabled(False)
-            
-            self.chk_log_scale = QCheckBox("Log Scale")
-            
-            self.cb_colormap = QComboBox()
-            self.cb_colormap.addItems(["gist_heat", "viridis", "jet", "plasma", "inferno"])
+        layout = QFormLayout(self.image_tab)
+        
+        self.chk_cb_lock = QCheckBox("Lock Colorbar")
+        self.le_cb_max = QLineEdit("1")
+        self.le_cb_min = QLineEdit("0")
+        self.le_cb_max.setEnabled(False)
+        self.le_cb_min.setEnabled(False)
+        
+        self.chk_log_scale = QCheckBox("Log Scale")
+        
+        self.cb_colormap = QComboBox()
+        self.cb_colormap.addItems(["gist_heat", "viridis", "jet", "plasma", "inferno"])
 
-            layout.addRow(self.chk_cb_lock)
-            layout.addRow("CB Max:", self.le_cb_max)
-            layout.addRow("CB Min:", self.le_cb_min)
-            layout.addRow(self.chk_log_scale)
-            layout.addRow("Colormap:", self.cb_colormap)
+        layout.addRow(self.chk_cb_lock)
+        layout.addRow("CB Max:", self.le_cb_max)
+        layout.addRow("CB Min:", self.le_cb_min)
+        layout.addRow(self.chk_log_scale)
+        layout.addRow("Colormap:", self.cb_colormap)
 
-            # ---------------- 수정할 부분 ----------------
-            self.btn_save_image = QPushButton("Save Image (PNG)")
-            self.btn_save_image.setStyleSheet("background-color: #607D8B; color: white;")
-            
-            self.btn_export_data = QPushButton("Export Data (TXT/CSV)")
-            self.btn_import_data = QPushButton("Import Data (TXT/CSV)")
-            
-            # 버튼들을 레이아웃에 예쁘게 패킹
-            layout.addRow(self.btn_save_image)
-            layout.addRow(self.btn_export_data, self.btn_import_data)
+        
+        self.btn_save_image = QPushButton("Save Image (PNG)")
+        self.btn_save_image.setStyleSheet("background-color: #607D8B; color: white;")
+        
+        self.btn_export_data = QPushButton("Export Data (TXT/CSV)")
+        self.btn_import_data = QPushButton("Import Data (TXT/CSV)")
+        
+        # 버튼들을 레이아웃에 패킹
+        layout.addRow(self.btn_save_image)
+        layout.addRow(self.btn_export_data, self.btn_import_data)
+
+        self.lbl_image_info = QLabel("Ready")
+        self.lbl_image_info.setStyleSheet("color: gray; font-size: 11px;")
+
+        # 가로 폭 제한 시 줄바꿈 활성화 및 최소 공간 확보
+        self.lbl_image_info.setWordWrap(True)
+        self.lbl_image_info.setMinimumHeight(45)
+
+        layout.addRow(self.lbl_image_info)
 
     def _build_galvo_group(self):
         group = QGroupBox("Galvo Move")
