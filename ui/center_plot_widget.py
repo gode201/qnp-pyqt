@@ -154,3 +154,26 @@ class CenterPlotWidget(QWidget):
         """Galvo 하드웨어가 실제로 이동을 완료했을 때 호출되어 원의 위치를 갱신한다."""
         self.galvo_indicator.center = (x_um, y_um)
         self.canvas.draw_idle()
+
+    def update_histogram(self, time_bins, counts):
+        """
+        PicoHarp TCSPC 데이터를 우측 상단 플롯에 업데이트하는 메서드.
+        """
+        self.ax_hist.clear()
+        self.ax_hist.set_title("PicoHarp Histogram", fontsize=9)
+        self.ax_hist.set_xlabel("Time (ns)", fontsize=8)
+        self.ax_hist.set_ylabel("Counts", fontsize=8)
+        self.ax_hist.tick_params(labelsize=7)
+        self.ax_hist.set_yscale("log")
+        
+        if len(time_bins) > 0 and len(counts) > 0:
+            self.ax_hist.plot(time_bins, counts, color='steelblue', lw=1)
+            self.ax_hist.set_xlim(min(time_bins), max(time_bins))
+            
+            # log scale에서 0이 들어가면 깨지므로 최소값을 0.5로 설정
+            y_max = max(counts)
+            self.ax_hist.set_ylim(0.5, y_max * 1.5 if y_max > 0 else 1e5)
+        else:
+            self.ax_hist.plot([0], [1], color='steelblue', lw=1)
+            
+        self.canvas.draw_idle()

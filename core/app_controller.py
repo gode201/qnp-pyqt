@@ -12,7 +12,7 @@ from ui.right_panel_widget import RightPanelWidget
 from core.daq_workers import PLScanWorker, ContinuousAPDWorker, GalvoWorker
 from core.winspec_worker import WinSpecWorker
 from core.daq_workers import PLScanWorker, ContinuousAPDWorker         
-# from core.picoharp_worker import PicoHarpWorker 
+from core.picoharp_worker import PicoHarpWorker 
 
 class AppController(QObject):
     """
@@ -62,7 +62,29 @@ class AppController(QObject):
         self.apd_worker.moveToThread(self.apd_thread)
         self.apd_thread.start()
 
-        # 3. PicoHarp Worker 초기화 (예정)
+        # 3. PicoHarp Worker 초기화 
+        self.ph_thread = QThread()
+        self.ph_worker = PicoHarpWorker()
+        self.ph_worker.moveToThread(self.ph_thread)
+
+        # 1) 히스토그램 데이터 -> 센터 플롯
+        self.ph_worker.sig_histogram_updated.connect(self.center_panel.update_histogram)
+        # 2) 메시지 -> 좌측 패널 정보창
+        self.ph_worker.sig_message.connect(self._on_worker_message)
+        # 3) Count Rate -> 우측 패널 라벨 업데이트
+        self.ph_worker.sig_count_rate_updated.connect(
+            lambda sync, chan: (
+                self.right_panel.lbl_ph_sync_rate.setText(f"CH0: {sync} cps"),
+                self.right_panel.lbl_ph_chan_rate.setText(f"CH1: {chan} cps")
+            )
+        )
+        # 4) 측정 완료 상태 복구
+        self.ph_worker.sig_measurement_finished.connect(self._on_ph_finished)
+
+        self.ph_thread.start()
+        # 스레드 시작 후 장비 초기화 명령 하달
+        QMetaObject.invokeMethod(self.ph_worker, "initialize", Qt.QueuedConnection)
+
 
         # 4. Galvo Move Worker 초기화
         self.galvo_thread = QThread()
@@ -128,10 +150,11 @@ class AppController(QObject):
         self.apd_window.sig_closed.connect(self._on_apd_window_closed)
 
         # ==========================================
-        # PicoHarp Panel -> Controller (예정)
+        # PicoHarp Panel -> Controller 
         # ==========================================
-        # self.right_panel.btn_ph_start.clicked.connect(self.handle_ph_start)
-        
+        self.right_panel.btn_ph_start_hist.clicked.connect(self.handle_ph_start_hist)
+        self.right_panel.btn_ph_stop.clicked.connect(self.handle_ph_stop)
+        # btn_ph_start_t2 #히스토그램부터 성공하면 해제
 
         # ==========================================
         # Center Panel (Scan map click/ galvo) -> Controller
@@ -699,6 +722,38 @@ class AppController(QObject):
         except ValueError:
             self.left_panel.lbl_image_info.setText("Error: Galvo 수동 제어 전 좌표를 확인하라.")
             self.left_panel.lbl_image_info.setStyleSheet("color: red;")
+
+    # -------------------------------------------------------------------------
+    # PicoHarp Handlers
+    # -------------------------------------------------------------------------
+    def handle_ph_start_hist(self):
+        """PicoHarp Histogram 측정 시작 명령을 내리고 UI를 잠근다."""
+        params = {
+            'acqtime_ms': self.right_panel.spin_ph_acqtime.value(),
+            'binning': self.right_panel.spin_ph_binning.value(),
+            'offset_ps': self.right_panel.spin_ph_offset.value(),
+            'stop_overflow': self.right_panel.chk_ph_stop_ovf.isChecked()
+        }
+        
+        # 버튼 상태 변경 (중복 실행 방지)
+        self.right_panel.btn_ph_start_hist.setEnabled(False)
+        self.right_panel.btn_ph_start_t2.setEnabled(False)
+        self.right_panel.btn_ph_stop.setEnabled(True)
+        
+        QMetaObject.invokeMethod(self.ph_worker, "start_measurement", 
+                                 Qt.QueuedConnection, Q_ARG(dict, params))
+
+    def handle_ph_stop(self):
+        """PicoHarp 측정 강제 중단 명령"""
+        QMetaObject.invokeMethod(self.ph_worker, "stop_measurement", Qt.QueuedConnection)
+
+    def _on_ph_finished(self, mode):
+        """측정이 정상 완료되거나 중단되었을 때 버튼 상태를 복구한다."""
+        self.right_panel.btn_ph_start_hist.setEnabled(True)
+        self.right_panel.btn_ph_start_t2.setEnabled(True)
+        self.right_panel.btn_ph_stop.setEnabled(False)
+
+
     def shutdown(self):
         """애플리케이션 종료 시 호출되어 모든 스레드를 안전하게 정리한다."""
 
@@ -740,13 +795,13 @@ class AppController(QObject):
         except Exception as e:
             print(f"[shutdown] ws disconnect error: {e}")
 
-        # 1-4. PicoHarp (예정) — 측정 중이면 stop 호출
-        # try:
-        #     if getattr(self.ph_worker, '_is_measuring', False):
-        #         QMetaObject.invokeMethod(self.ph_worker, "stop_measurement",
-        #                                  Qt.BlockingQueuedConnection)
-        # except Exception as e:
-        #     print(f"[shutdown] ph stop error: {e}")
+        #1-4. PicoHarp (측정 중이면 stop 호출)
+        try:
+            if getattr(self.ph_worker, '_is_measuring', False):
+                QMetaObject.invokeMethod(self.ph_worker, "stop_measurement",
+                                         Qt.BlockingQueuedConnection)
+        except Exception as e:
+            print(f"[shutdown] ph stop error: {e}")
 
         # ---------------------------------------------------------------
         # 2. 스레드 종료 (quit → wait, 타임아웃으로 데드락 방지)
@@ -769,6 +824,6 @@ class AppController(QObject):
         _stop_thread(getattr(self, 'galvo_thread', None), "galvo_thread")
         _stop_thread(getattr(self, 'scan_thread', None), "scan_thread")
         _stop_thread(getattr(self, 'ws_thread',   None), "ws_thread")
-        # _stop_thread(getattr(self, 'ph_thread', None), "ph_thread")  # 예정
+        _stop_thread(getattr(self, 'ph_thread', None), "ph_thread")  # 예정
 
     
