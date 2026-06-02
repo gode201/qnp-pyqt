@@ -149,7 +149,7 @@ PH_HIST_ACQTIME_MS     = 1000        # 취득 시간 (ms). 1ms ~ 3,600,000ms
 PH_HIST_BINNING        = 3           # 시간 해상도 지수. 분해능 = 2^n × 4 ps
                                       # 0 → 4ps, 1 → 8ps, ..., 7 → 512ps
 PH_HIST_OFFSET_PS      = 0           # 타임 오프셋 (ps). -500,000 ~ +500,000
-PH_HIST_STOP_OVERFLOW  = None        # overflow 시 자동 정지
+PH_HIST_STOP_OVERFLOW  = False        # overflow 시 자동 정지
 
 # 채널 CFD 파라미터 (기본값 — 실험 조건에 따라 조정)
 PH_SYNC_CFD_LEVEL_MV   = 111         # Sync 채널 CFD 레벨 (mV)
@@ -193,8 +193,6 @@ WINSPEC_SPE_DIR     = 'C:/winspec_data'           # Win7 VM SPE 저장 경로 (�
 WINSPEC_CSV_DIR     = r'Z:'                        # COM2 CSV 저장 경로 (Z: = C:\winspec_data)
 
 # ============================================================================
-# TODO
+# Obis Laser IP
 # ============================================================================
-"""추가예정기능
-    personal parameter 저장 불러오기
-"""
+OBIS_IP = '192.168.0.54'

@@ -1,8 +1,8 @@
 import sys
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QSplitter,
                              QVBoxLayout, QTabWidget, QScrollArea, QLabel, QStatusBar)
-
-from PyQt5.QtCore import Qt, pyqtSignal
+# 🟢 QEvent 추가 임포트 필수
+from PyQt5.QtCore import Qt, pyqtSignal, QEvent
 # -----------------------------------------------------------------------------
 # Placeholder Classes (ui/ 디렉토리 하위로 분리된 모듈들)
 # -----------------------------------------------------------------------------
@@ -30,6 +30,7 @@ class DAQMainWindow(QMainWindow):
         self._setup_ui()
         self._setup_statusbar()
         self._connect_signals()
+        QApplication.instance().installEventFilter(self)
 
     def _setup_ui(self):
         """메인 레이아웃 및 Splitter 구성"""
@@ -92,30 +93,30 @@ class DAQMainWindow(QMainWindow):
                 # 데이터가 없을 경우 기본 히스토그램 축 렌더링
                 self.center_panel.update_histogram([], [])
 
-    def keyPressEvent(self, event):
+    def eventFilter(self, obj, event):
         """
-        키보드 이벤트를 전역에서 낚아챈다. 
-        단, QLineEdit(텍스트 입력창)에 포커스가 없을 때만 Galvo를 움직인다.
+        이벤트 버블링을 무시하고 가장 먼저 키보드 이벤트를 검사한다.
         """
-        from PyQt5.QtWidgets import QLineEdit
-        
-        # 현재 포커스를 가진 위젯이 텍스트 입력창이면, 방향키를 글자 편집용으로 양보함
-        if isinstance(self.focusWidget(), QLineEdit):
-            super().keyPressEvent(event)
-            return
+        if event.type() == QEvent.KeyPress:
+            from PyQt5.QtWidgets import QLineEdit
+            
+            # 현재 포커스가 텍스트 입력창(QLineEdit)에 있다면 편집을 위해 키를 얌전히 양보함
+            if isinstance(QApplication.focusWidget(), QLineEdit):
+                return super().eventFilter(obj, event)
 
-        # 그 외의 상태에서는 방향키를 무조건 Galvo 컨트롤용으로 강제 할당
-        if event.key() == Qt.Key_Up:
-            self.sig_arrow_pressed.emit('up')
-            event.accept()
-        elif event.key() == Qt.Key_Down:
-            self.sig_arrow_pressed.emit('down')
-            event.accept()
-        elif event.key() == Qt.Key_Left:
-            self.sig_arrow_pressed.emit('left')
-            event.accept()
-        elif event.key() == Qt.Key_Right:
-            self.sig_arrow_pressed.emit('right')
-            event.accept()
-        else:
-            super().keyPressEvent(event)        
+            key = event.key()
+            if key == Qt.Key_Up:
+                self.sig_arrow_pressed.emit('up')
+                return True  # True를 반환하면 이벤트를 완전히 소비하여 캔버스로 넘어가는 것을 막음
+            elif key == Qt.Key_Down:
+                self.sig_arrow_pressed.emit('down')
+                return True
+            elif key == Qt.Key_Left:
+                self.sig_arrow_pressed.emit('left')
+                return True
+            elif key == Qt.Key_Right:
+                self.sig_arrow_pressed.emit('right')
+                return True
+
+        # 방향키가 아니거나 마우스 클릭 등 다른 이벤트면 원래 프레임워크 흐름대로 흘려보냄
+        return super().eventFilter(obj, event)

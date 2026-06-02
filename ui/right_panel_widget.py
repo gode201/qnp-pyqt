@@ -4,6 +4,11 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFo
                              QRadioButton, QButtonGroup) # QRadioButton, QButtonGroup 추가
 from PyQt5.QtCore import pyqtSignal, Qt
 
+from core.Default import (
+    WINSPEC_IP, WINSPEC_EXPOSURE, WINSPEC_ACCUMULATIONS, WINSPEC_SPE_DIR, WINSPEC_CSV_DIR,
+    PH_HIST_ACQTIME_MS, PH_HIST_BINNING, PH_HIST_OFFSET_PS, PH_HIST_STOP_OVERFLOW,
+    PH_T2_ACQTIME_S, PH_T2_SAVE_DIR, OBIS_IP
+)
 class RightPanelWidget(QWidget):
     """
     우측 제어 패널 전담 위젯.
@@ -25,47 +30,57 @@ class RightPanelWidget(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
-            layout = QVBoxLayout(self)
-            layout.setContentsMargins(0, 0, 0, 0)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
 
-            # ---------------------------------------------------------------------
-            # [신규 추가] Global Center Plot View Mode
-            # ---------------------------------------------------------------------
-            view_group = QGroupBox("Center Plot View Mode")
-            view_layout = QHBoxLayout()
-            
-            self.radio_view_ph = QRadioButton("PicoHarp Histogram")
-            self.radio_view_ws = QRadioButton("WinSpec Spectrum")
-            
-            self.radio_view_ph.setChecked(True) # 기본값
+        # ---------------------------------------------------------------------
+        # Global Center Plot View Mode
+        # ---------------------------------------------------------------------
+        view_group = QGroupBox("Center Plot View Mode")
+        view_layout = QHBoxLayout()
+        
+        self.radio_view_ph = QRadioButton("PicoHarp Histogram")
+        self.radio_view_ws = QRadioButton("WinSpec Spectrum")
+        
+        self.radio_view_ph.setChecked(True) # 기본값
 
-            # 버튼 그룹으로 묶어서 상호 배타적(Exclusive)으로 동작하게 만듦
-            self.view_btn_group = QButtonGroup()
-            self.view_btn_group.addButton(self.radio_view_ph)
-            self.view_btn_group.addButton(self.radio_view_ws)
+        # 버튼 그룹으로 묶어서 상호 배타적(Exclusive)으로 동작하게 만듦
+        self.view_btn_group = QButtonGroup(self)
+        self.view_btn_group.addButton(self.radio_view_ph)
+        self.view_btn_group.addButton(self.radio_view_ws)
 
-            view_layout.addWidget(self.radio_view_ph)
-            view_layout.addWidget(self.radio_view_ws)
-            view_group.setLayout(view_layout)
-            
-            layout.addWidget(view_group) # 탭 위에 배치
+        view_layout.addWidget(self.radio_view_ph)
+        view_layout.addWidget(self.radio_view_ws)
+        view_group.setLayout(view_layout)
+        
+        layout.addWidget(view_group) # 탭 위에 배치
 
-            # 상태 변경 이벤트 연결
-            self.radio_view_ph.clicked.connect(lambda: self.sig_view_mode_changed.emit("picoharp"))
-            self.radio_view_ws.clicked.connect(lambda: self.sig_view_mode_changed.emit("winspec"))
-            # ---------------------------------------------------------------------
+        # 상태 변경 이벤트 연결
+        self.radio_view_ph.toggled.connect(
+            lambda checked: checked and self.sig_view_mode_changed.emit("picoharp")
+                                            )
+        self.radio_view_ws.toggled.connect(
+            lambda checked: checked and self.sig_view_mode_changed.emit("winspec")
+        )
 
-            self.tabs = QTabWidget()
-            self.winspec_tab = QWidget()
-            self.picoharp_tab = QWidget()
+        
+        # ---------------------------------------------------------------------
 
-            self._build_winspec_tab()
-            self._build_picoharp_tab()
+        self.tabs = QTabWidget()
+        self.winspec_tab = QWidget()
+        self.picoharp_tab = QWidget()
+        
+        self._build_winspec_tab()
+        self._build_picoharp_tab()
+        
+        
 
-            self.tabs.addTab(self.winspec_tab, "WinSpec")
-            self.tabs.addTab(self.picoharp_tab, "PicoHarp")
+        self.tabs.addTab(self.winspec_tab, "WinSpec")
+        self.tabs.addTab(self.picoharp_tab, "PicoHarp")
 
-            layout.addWidget(self.tabs)
+        layout.addWidget(self.tabs, stretch=1)
+        layout.addWidget(self._build_obis_group())
+
 
     # -------------------------------------------------------------------------
     # WinSpec Tab (Acton SP300i 제어)
@@ -95,12 +110,12 @@ class RightPanelWidget(QWidget):
         param_group = QGroupBox("Parameters")
         form = QFormLayout()
         
-        self.le_ws_ip = QLineEdit("192.168.0.100") # WINSPEC_IP 기본값
+        self.le_ws_ip = QLineEdit(WINSPEC_IP) 
         self.le_ws_prefix = QLineEdit("spectrum")
-        
+
         exp_layout = QHBoxLayout()
-        self.le_ws_exposure = QLineEdit("1.0")
-        self.le_ws_accum = QLineEdit("1")
+        self.le_ws_exposure = QLineEdit(str(WINSPEC_EXPOSURE))
+        self.le_ws_accum = QLineEdit(str(WINSPEC_ACCUMULATIONS))
         exp_layout.addWidget(self.le_ws_exposure)
         exp_layout.addWidget(QLabel("Acc:"))
         exp_layout.addWidget(self.le_ws_accum)
@@ -115,8 +130,8 @@ class RightPanelWidget(QWidget):
         dir_group = QGroupBox("Directories")
         dir_form = QFormLayout()
         
-        self.le_ws_spe_dir = QLineEdit("C:/WinSpec_Data")
-        self.le_ws_csv_dir = QLineEdit("./Data/Spectrum")
+        self.le_ws_spe_dir = QLineEdit(WINSPEC_SPE_DIR)
+        self.le_ws_csv_dir = QLineEdit(WINSPEC_CSV_DIR)
         
         def _add_dir_row(label_text, line_edit):
             row_layout = QHBoxLayout()
@@ -234,22 +249,24 @@ class RightPanelWidget(QWidget):
         acq_group = QGroupBox("Acquisition")
         acq_form = QFormLayout()
 
-        # Tkinter의 억지스러운 버튼 증감을 QSpinBox로 깔끔하게 교체
+       
         self.spin_ph_acqtime = QSpinBox()
         self.spin_ph_acqtime.setRange(1, 3600000)
         self.spin_ph_acqtime.setSingleStep(100)
-        self.spin_ph_acqtime.setValue(1000)
+        self.spin_ph_acqtime.setValue(PH_HIST_ACQTIME_MS)
 
         self.spin_ph_binning = QSpinBox()
         self.spin_ph_binning.setRange(0, 7)
-        self.spin_ph_binning.setValue(0)
+        self.spin_ph_binning.setValue(PH_HIST_BINNING)
 
         self.spin_ph_offset = QSpinBox()
         self.spin_ph_offset.setRange(-500000, 500000)
         self.spin_ph_offset.setSingleStep(1000)
-        self.spin_ph_offset.setValue(0)
+        self.spin_ph_offset.setValue(PH_HIST_OFFSET_PS)
 
         self.chk_ph_stop_ovf = QCheckBox("Stop on Overflow")
+        self.chk_ph_stop_ovf.setChecked(PH_HIST_STOP_OVERFLOW)
+
 
         acq_form.addRow("Time [ms]:", self.spin_ph_acqtime)
         acq_form.addRow("Binning (0-7):", self.spin_ph_binning)
@@ -264,10 +281,10 @@ class RightPanelWidget(QWidget):
         
         self.spin_ph_t2_acqtime = QSpinBox()
         self.spin_ph_t2_acqtime.setRange(1, 3600)
-        self.spin_ph_t2_acqtime.setValue(10)
+        self.spin_ph_t2_acqtime.setValue(PH_T2_ACQTIME_S)
         
         dir_layout = QHBoxLayout()
-        self.le_ph_t2_dir = QLineEdit("./Data/T2")
+        self.le_ph_t2_dir = QLineEdit(PH_T2_SAVE_DIR)
         self.btn_ph_t2_browse = QToolButton()
         self.btn_ph_t2_browse.setText("...")
         dir_layout.addWidget(self.le_ph_t2_dir)
@@ -314,11 +331,73 @@ class RightPanelWidget(QWidget):
     # Auto-Switch Helper Methods
     # -------------------------------------------------------------------------
     def _auto_switch_to_winspec(self):
-        if not self.radio_view_ws.isChecked():
-            self.radio_view_ws.setChecked(True)
-            self.sig_view_mode_changed.emit("winspec")
+        self.radio_view_ws.setChecked(True)   # toggled가 알아서 emit
 
     def _auto_switch_to_picoharp(self):
-        if not self.radio_view_ph.isChecked():
-            self.radio_view_ph.setChecked(True)
-            self.sig_view_mode_changed.emit("picoharp")
+        self.radio_view_ph.setChecked(True)
+            
+    def _build_obis_group(self):
+        """OBIS 레이저 통합 제어부 (Single Server Connection)"""
+        group = QGroupBox("OBIS Lasers")
+        layout = QVBoxLayout()
+        layout.setSpacing(8)
+
+        # 1. 통합 서버 연결부 (TCP Socket Connect)
+        conn_layout = QHBoxLayout()
+        self.le_obis_ip = QLineEdit(OBIS_IP) 
+        self.btn_obis_connect = QPushButton("Connect Server")
+        self.btn_obis_connect.setStyleSheet("font-weight: bold;")
+        
+        conn_layout.addWidget(QLabel("IP:"))
+        conn_layout.addWidget(self.le_obis_ip)
+        conn_layout.addWidget(self.btn_obis_connect)
+        layout.addLayout(conn_layout)
+
+        # 시각적 구분을 위한 수평선(Line)
+        line = QLabel()
+        line.setFrameShape(QLabel.HLine)
+        line.setFrameShadow(QLabel.Sunken)
+        layout.addWidget(line)
+
+        # 2. 532nm 레이저 제어부 (오직 Emission ON/OFF만 담당)
+        h_layout_532 = QHBoxLayout()
+        self.btn_obis_532 = QPushButton("⚫ 532nm OFF")
+        self.btn_obis_532.setFixedWidth(100)
+        self.btn_obis_532.setEnabled(False) # 서버 연결 전까지는 조작 불가(Lock)
+        
+        self.lbl_obis_532_status = QLabel("--- mW")
+        self.lbl_obis_532_status.setStyleSheet("font-family: Consolas; font-size: 11px;")
+        
+        self.btn_obis_532_cfg = QToolButton()
+        self.btn_obis_532_cfg.setText("⚙")
+        self.btn_obis_532_cfg.setEnabled(False)
+
+        h_layout_532.addWidget(self.btn_obis_532)
+        h_layout_532.addWidget(self.lbl_obis_532_status)
+        h_layout_532.addStretch()
+        h_layout_532.addWidget(self.btn_obis_532_cfg)
+
+        # 3. 633nm 레이저 제어부 (오직 Emission ON/OFF만 담당)
+        h_layout_633 = QHBoxLayout()
+        self.btn_obis_633 = QPushButton("⚫ 633nm OFF")
+        self.btn_obis_633.setFixedWidth(100)
+        self.btn_obis_633.setEnabled(False)
+        
+        self.lbl_obis_633_status = QLabel("--- mW")
+        self.lbl_obis_633_status.setStyleSheet("font-family: Consolas; font-size: 11px;")
+        
+        self.btn_obis_633_cfg = QToolButton()
+        self.btn_obis_633_cfg.setText("⚙")
+        self.btn_obis_633_cfg.setEnabled(False)
+
+        h_layout_633.addWidget(self.btn_obis_633)
+        h_layout_633.addWidget(self.lbl_obis_633_status)
+        h_layout_633.addStretch()
+        h_layout_633.addWidget(self.btn_obis_633_cfg)
+
+        layout.addLayout(h_layout_532)
+        layout.addLayout(h_layout_633)
+        
+        group.setLayout(layout)
+        
+        return group

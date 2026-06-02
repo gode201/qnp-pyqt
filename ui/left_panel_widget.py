@@ -3,6 +3,17 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFo
                              QPushButton, QComboBox, QCheckBox, QDoubleSpinBox)
 from PyQt5.QtCore import pyqtSignal, Qt
 
+from core.Default import (
+    X_MIN, X_MAX, Y_MIN, Y_MAX, X_STEPS, Y_STEPS,
+    GALVO_X_DEFAULT, GALVO_Y_DEFAULT, GALVO_X_STEP,
+    SAMPLING_INTERVAL, AVERAGING_COUNT, AO_SAMPLE_RATE, DEFAULT_SCAN_MODE,
+    DRIFT_CORRECTION_INTERVAL, 
+    PIEZO_COM_PORT, PIEZO_Z_DEFAULT, PIEZO_Z_STEP,
+    AF_Z_MIN, AF_Z_MAX,
+    Z_SCAN_MIN, Z_SCAN_MAX, Z_SCAN_STEPS
+)
+
+
 class LeftPanelWidget(QWidget):
     """
     좌측 제어 패널 전담 위젯.
@@ -78,30 +89,30 @@ class LeftPanelWidget(QWidget):
         # Range & Steps (QGridLayout 활용)
         grid = QGridLayout()
         grid.addWidget(QLabel("X Range:"), 0, 0)
-        self.le_x_min = QLineEdit("-10")
-        self.le_x_max = QLineEdit("10")
-        self.lbl_x_len = QLabel("len: 20.00")
+        self.le_x_min = QLineEdit(str(X_MIN))
+        self.le_x_max = QLineEdit(str(X_MAX))
+        self.lbl_x_len = QLabel(f"len: {X_MAX - X_MIN:.2f}")
         grid.addWidget(self.le_x_min, 0, 1)
         grid.addWidget(self.le_x_max, 0, 2)
         grid.addWidget(self.lbl_x_len, 0, 3)
 
         grid.addWidget(QLabel("Y Range:"), 1, 0)
-        self.le_y_min = QLineEdit("-10")
-        self.le_y_max = QLineEdit("10")
-        self.lbl_y_len = QLabel("len: 20.00")
+        self.le_y_min = QLineEdit(str(Y_MIN))
+        self.le_y_max = QLineEdit(str(Y_MAX))
+        self.lbl_y_len = QLabel(f"len: {Y_MAX - Y_MIN:.2f}")
         grid.addWidget(self.le_y_min, 1, 1)
         grid.addWidget(self.le_y_max, 1, 2)
         grid.addWidget(self.lbl_y_len, 1, 3)
 
         grid.addWidget(QLabel("X Steps:"), 2, 0)
-        self.le_x_steps = QLineEdit("100")
-        self.lbl_dx = QLabel("dx: 0.200")
+        self.le_x_steps = QLineEdit(str(X_STEPS))
+        self.lbl_dx = QLabel(f"dx: {(X_MAX - X_MIN) / X_STEPS:.3f}")
         grid.addWidget(self.le_x_steps, 2, 1, 1, 2)
         grid.addWidget(self.lbl_dx, 2, 3)
 
         grid.addWidget(QLabel("Y Steps:"), 3, 0)
-        self.le_y_steps = QLineEdit("100")
-        self.lbl_dy = QLabel("dy: 0.200")
+        self.le_y_steps = QLineEdit(str(Y_STEPS))
+        self.lbl_dy = QLabel(f"dy: {(Y_MAX - Y_MIN) / Y_STEPS:.3f}")
         grid.addWidget(self.le_y_steps, 3, 1, 1, 2)
         grid.addWidget(self.lbl_dy, 3, 3)
 
@@ -111,19 +122,19 @@ class LeftPanelWidget(QWidget):
         form = QFormLayout()
         
         dwell_layout = QHBoxLayout()
-        self.le_dwell = QLineEdit("0.001")
-        self.le_avg = QLineEdit("1")
+        self.le_dwell = QLineEdit(str(SAMPLING_INTERVAL))
+        self.le_avg = QLineEdit(str(AVERAGING_COUNT))
         dwell_layout.addWidget(self.le_dwell)
         dwell_layout.addWidget(QLabel("Avg:"))
         dwell_layout.addWidget(self.le_avg)
         form.addRow("Dwell [s]:", dwell_layout)
 
-        self.le_ao_rate = QLineEdit("50000")
+        self.le_ao_rate = QLineEdit(str(AO_SAMPLE_RATE))  
         form.addRow("AO Rate [S/s]:", self.le_ao_rate)
         
         self.cb_scan_mode = QComboBox()
         self.cb_scan_mode.addItems(["Triangle", "Discrete", "Sine", "XZ", "YZ", "3D Stack"])
-        form.addRow("Mode:", self.cb_scan_mode)
+        self.cb_scan_mode.setCurrentText(DEFAULT_SCAN_MODE)
         
         layout.addLayout(form)
 
@@ -153,9 +164,9 @@ class LeftPanelWidget(QWidget):
         drift_group = QGroupBox("Drift Correction")
         drift_layout = QGridLayout()
         self.chk_drift_enable = QCheckBox("Enable")
-        self.le_drift_interval = QLineEdit("50")
-        self.le_drift_ref_x = QLineEdit("0.0")
-        self.le_drift_ref_y = QLineEdit("0.0")
+        self.le_drift_interval = QLineEdit(str(DRIFT_CORRECTION_INTERVAL))
+        self.le_drift_ref_x = QLineEdit(str(GALVO_X_DEFAULT))
+        self.le_drift_ref_y = QLineEdit(str(GALVO_Y_DEFAULT))
         self.btn_drift_set = QPushButton("Set")
         
         drift_layout.addWidget(self.chk_drift_enable, 0, 0)
@@ -214,17 +225,18 @@ class LeftPanelWidget(QWidget):
         group = QGroupBox("Galvo Move")
         layout = QGridLayout()
 
-        self.le_galvo_x = QLineEdit("0.0")
-        self.le_galvo_y = QLineEdit("0.0")
+        self.le_galvo_x = QLineEdit(str(GALVO_X_DEFAULT))
+        self.le_galvo_y = QLineEdit(str(GALVO_Y_DEFAULT))
         self.btn_galvo_move = QPushButton("Move")
-        
+        self.le_galvo_step = QLineEdit(str(GALVO_X_STEP))
+
         layout.addWidget(QLabel("X (μm):"), 0, 0)
         layout.addWidget(self.le_galvo_x, 0, 1)
         layout.addWidget(QLabel("Y (μm):"), 0, 2)
         layout.addWidget(self.le_galvo_y, 0, 3)
         layout.addWidget(self.btn_galvo_move, 0, 4)
 
-        # 화살표 패드 (간략화)
+        # 화살표 패드
         pad_layout = QGridLayout()
         self.btn_up = QPushButton("↑")
         self.btn_down = QPushButton("↓")
@@ -234,10 +246,15 @@ class LeftPanelWidget(QWidget):
         pad_layout.addWidget(self.btn_left, 1, 0)
         pad_layout.addWidget(self.btn_right, 1, 2)
         pad_layout.addWidget(self.btn_down, 2, 1)
-        layout.addLayout(pad_layout, 1, 0, 1, 3)
+        # 패드가 세로로 2칸(Row Span 2)을 차지하도록 조정
+        layout.addLayout(pad_layout, 1, 0, 2, 3) 
+
+        # 🟢 [수정] 누락되었던 스텝 입력창을 1행 3열 위치에 삽입
+        layout.addWidget(QLabel("Step:"), 1, 3)
+        layout.addWidget(self.le_galvo_step, 1, 4)
 
         self.btn_set_zero = QPushButton("Set Zero")
-        layout.addWidget(self.btn_set_zero, 1, 3, 1, 2)
+        layout.addWidget(self.btn_set_zero, 2, 3, 1, 2)
 
         group.setLayout(layout)
         self.scroll_layout.addWidget(group)
@@ -246,26 +263,39 @@ class LeftPanelWidget(QWidget):
         group = QGroupBox("Piezo Z")
         layout = QGridLayout()
         
-        self.le_piezo_z = QLineEdit("10.0")
-        self.le_piezo_step = QLineEdit("0.1")
+        self.le_piezo_port = QLineEdit(str(PIEZO_COM_PORT))
+        self.btn_piezo_connect = QPushButton("Connect")
+        self.btn_piezo_disconnect = QPushButton("Disconnect")
+        self.btn_piezo_disconnect.setEnabled(False) # 처음엔 비활성화
+
+        conn_layout = QHBoxLayout()
+        conn_layout.addWidget(QLabel("COM:"))
+        conn_layout.addWidget(self.le_piezo_port)
+        conn_layout.addWidget(self.btn_piezo_connect)
+        conn_layout.addWidget(self.btn_piezo_disconnect)
+        layout.addLayout(conn_layout, 0, 0, 1, 4)
+
+        self.le_piezo_z = QLineEdit(str(PIEZO_Z_DEFAULT))
+        self.le_piezo_step = QLineEdit(str(PIEZO_Z_STEP))
         self.btn_piezo_move = QPushButton("Move Z")
         
-        layout.addWidget(QLabel("Z (μm):"), 0, 0)
-        layout.addWidget(self.le_piezo_z, 0, 1)
-        layout.addWidget(QLabel("Step:"), 0, 2)
-        layout.addWidget(self.le_piezo_step, 0, 3)
-        
+        layout.addWidget(QLabel("Z (μm):"), 1, 0)
+        layout.addWidget(self.le_piezo_z, 1, 1)
+        layout.addWidget(QLabel("Step:"), 1, 2)
+        layout.addWidget(self.le_piezo_step, 1, 3)
+
+
         btn_layout = QHBoxLayout()
         self.btn_z_up = QPushButton("▲")
         self.btn_z_down = QPushButton("▼")
         btn_layout.addWidget(self.btn_piezo_move)
         btn_layout.addWidget(self.btn_z_up)
         btn_layout.addWidget(self.btn_z_down)
-        layout.addLayout(btn_layout, 1, 0, 1, 4)
+        layout.addLayout(btn_layout, 2, 0, 1, 4)
 
         self.lbl_piezo_live = QLabel("Z: ---.--- μm")
         self.lbl_piezo_live.setStyleSheet("font-family: Consolas; color: blue;")
-        layout.addWidget(self.lbl_piezo_live, 2, 0, 1, 4)
+        layout.addWidget(self.lbl_piezo_live, 3, 0, 1, 4)
 
         group.setLayout(layout)
         self.scroll_layout.addWidget(group)
@@ -291,21 +321,30 @@ class LeftPanelWidget(QWidget):
 
     def _build_af_tab(self):
         layout = QFormLayout(self.af_tab)
+        
         self.cb_af_mode = QComboBox()
         self.cb_af_mode.addItems(["plateau_center", "max_slope", "rising_edge"])
         layout.addRow("Mode:", self.cb_af_mode)
-        self.le_af_zmin = QLineEdit("0")
-        self.le_af_zmax = QLineEdit("20")
-        layout.addRow("Z Min/Max:", QHBoxLayout()) # Placeholder, 실제론 더 깔끔하게 패킹
+        
+        self.le_af_zmin = QLineEdit(str(AF_Z_MIN))
+        self.le_af_zmax = QLineEdit(str(AF_Z_MAX))
+        
+        # 🟢 [수정] 깡통 Placeholder를 지우고 실제 위젯들을 가로로 묶어서 추가
+        af_range_layout = QHBoxLayout()
+        af_range_layout.addWidget(self.le_af_zmin)
+        af_range_layout.addWidget(QLabel("~"))
+        af_range_layout.addWidget(self.le_af_zmax)
+        layout.addRow("Z Range:", af_range_layout)
+        
         self.btn_af_start = QPushButton("Auto-Focus")
         self.btn_af_start.setStyleSheet("background-color: #4CAF50; color: white;")
         layout.addRow(self.btn_af_start)
 
     def _build_zscan_tab(self):
         layout = QFormLayout(self.zscan_tab)
-        self.le_zscan_min = QLineEdit("0")
-        self.le_zscan_max = QLineEdit("20")
-        self.le_zscan_steps = QLineEdit("50")
+        self.le_zscan_min = QLineEdit(str(Z_SCAN_MIN))
+        self.le_zscan_max = QLineEdit(str(Z_SCAN_MAX))
+        self.le_zscan_steps = QLineEdit(str(Z_SCAN_STEPS))
         layout.addRow("Z Min:", self.le_zscan_min)
         layout.addRow("Z Max:", self.le_zscan_max)
         layout.addRow("Steps:", self.le_zscan_steps)

@@ -251,7 +251,7 @@ class ContinuousAPDWorker(QObject):
 
 class GalvoWorker(QObject):
     """
-    단발성 Galvo X, Y 위치 이동을 처리하는 전용 Worker. PL scanner는 스캔 루프가 무겁기 때문에 별도의 worker로 분리 상단에 존재.
+    단발성 Galvo X, Y 위치 이동을 처리하는 전용 Worker.
     메인 스레드를 블로킹하지 않기 위해 독립된 QThread에서 실행된다.
     """
     sig_message = pyqtSignal(str, str) # level, message
@@ -259,28 +259,49 @@ class GalvoWorker(QObject):
 
     def __init__(self):
         super().__init__()
+        # 하드웨어 통신 에러 발생 시 True로 전환되어 이후부터는 모의 응답만 뱉음
+        self._simulation_mode = False 
 
     @pyqtSlot(float, float)
     def move_to(self, x_um, y_um):
-        if not _NIDAQMX_AVAILABLE:
-            self.sig_message.emit("error", "nidaqmx is not available. Galvo move disabled.")
+        """Galvo 하드웨어 제어 및 오프라인 모의(Mocking) 응답 처리"""
+        
+        # 1. 애초에 모듈이 없거나, 이전에 통신 에러가 나서 시뮬레이션 모드로 잠긴 경우
+        if not _NIDAQMX_AVAILABLE or self._simulation_mode:
+            self._mock_move(x_um, y_um)
             return
 
+        # 2. 실제 하드웨어 (온라인) 제어 로직
         try:
             import nidaqmx
             
-            # Default.py에서 임포트한 상수를 사용
             x_v = x_um / UNIT_CONVERSION_FACTOR
             y_v = y_um / UNIT_CONVERSION_FACTOR
             
             with nidaqmx.Task() as task:
-                task.ao_channels.add_ao_voltage_chan("Dev2/ao0", min_val=-10.0, max_val=10.0)
-                task.ao_channels.add_ao_voltage_chan("Dev2/ao1", min_val=-10.0, max_val=10.0)
-                # 다중 채널이므로 리스트 형태로 한 번에 write
+                task.ao_channels.add_ao_voltage_chan("Dev2/ao0", min_val=-10, max_val=10)
+                task.ao_channels.add_ao_voltage_chan("Dev2/ao1", min_val=-10, max_val=10)
                 task.write([x_v, y_v], auto_start=True)
-                
-            self.sig_moved.emit(x_um, y_um)
-            self.sig_message.emit("info", f"[Moved] X={x_um:.2f}μm, Y={y_um:.2f}μm")
+            
+            time.sleep(GALVO_SETTLING_TIME)
+            
+            self.sig_message.emit("info", f"Galvo moved to X: {x_um:.3f}, Y: {y_um:.3f}")
+            
+            # ★ 실제 장비가 정상 이동했을 때만 Ack 시그널 방출
+            self.sig_moved.emit(x_um, y_um) 
             
         except Exception as e:
-            self.sig_message.emit("error", f"Galvo Move Error: {e}")
+            # 3. 보드가 안 꽂혀있어 nidaqmx 내부 에러가 났을 경우 (오프라인 상태)
+            self.sig_message.emit("error", f"DAQ Error (Fallback to Offline): {e}")
+            
+            # 다음 명령부터는 하드웨어를 건드리지 않도록 시뮬레이션 모드로 영구 전환
+            self._simulation_mode = True 
+            
+            # 에러가 났어도 마커는 움직여야 하므로 즉시 가짜 응답 처리
+            self._mock_move(x_um, y_um)
+            
+    def _mock_move(self, x_um, y_um):
+        """가짜(Mock) 이동 처리로 UI 마커를 갱신한다."""
+        self.sig_message.emit("info", f"[Offline] Simulated move to ({x_um:.3f}, {y_um:.3f})")
+        time.sleep(0.05) # 장비 이동 딜레이 흉내
+        self.sig_moved.emit(x_um, y_um)

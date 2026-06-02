@@ -60,11 +60,21 @@ class CenterPlotWidget(QWidget):
         self.ax2.set_xlabel("X (μm)")
         self.ax2.set_ylabel("Y (μm)")
         
+        #========================================================
         # Galvo Indicator
+        #========================================================
+        # 현재 물리적 위치 (청록색 실선 원)
         self.galvo_indicator = plt.Circle(
             (0, 0), 1.0, color='cyan', fill=False, lw=2, zorder=10
         )
         self.ax2.add_patch(self.galvo_indicator)
+        # 이동 예정인 타겟 위치 (회색 점선 원 - 초기엔 숨김)
+        self.galvo_target_indicator = plt.Circle(
+            (0, 0), 1.0, color='gray', linestyle='--', fill=False, lw=1, zorder=9
+        )
+        self.ax2.add_patch(self.galvo_target_indicator)
+        self.galvo_target_indicator.set_visible(False)
+        
         self.canvas.mpl_connect('button_press_event', self._on_canvas_clicked)
 
         # Colorbar 초기화 (Dummy 데이터)
@@ -150,9 +160,16 @@ class CenterPlotWidget(QWidget):
             if event.xdata is not None and event.ydata is not None:
                 self.sig_map_clicked.emit(event.xdata, event.ydata)
 
+    def set_galvo_target(self, x_um, y_um):
+        """UI에서 이동을 요청했을 때 즉시 표시되는 가상의 타겟 마커 (Optimistic)"""
+        self.galvo_target_indicator.center = (x_um, y_um)
+        self.galvo_target_indicator.set_visible(True)
+        self.canvas.draw_idle()
+
     def update_galvo_indicator(self, x_um, y_um):
-        """Galvo 하드웨어가 실제로 이동을 완료했을 때 호출되어 원의 위치를 갱신한다."""
+        """하드웨어가 이동을 완료(Ack)했을 때 갱신되는 실제 마커"""
         self.galvo_indicator.center = (x_um, y_um)
+        self.galvo_target_indicator.set_visible(False) # 도착했으니 타겟 마커 숨김
         self.canvas.draw_idle()
 
     def update_histogram(self, time_bins, counts):

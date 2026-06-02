@@ -7,12 +7,15 @@ from ui.apd_count_window import APDCountWindow
 from ui.left_panel_widget import LeftPanelWidget
 from ui.center_plot_widget import CenterPlotWidget
 from ui.right_panel_widget import RightPanelWidget
+from ui.laser_config_dialog import LaserConfigDialog
 
 # 하드웨어 워커들
 from core.daq_workers import PLScanWorker, ContinuousAPDWorker, GalvoWorker
 from core.winspec_worker import WinSpecWorker
 from core.daq_workers import PLScanWorker, ContinuousAPDWorker         
 from core.picoharp_worker import PicoHarpWorker 
+from core.piezo_worker import PiezoWorker
+from core.obis_worker import ObisWorker
 
 class AppController(QObject):
     """
@@ -50,7 +53,7 @@ class AppController(QObject):
         self.ws_worker.moveToThread(self.ws_thread)
         self.ws_thread.start()
 
-        # 2. DAQ & Piezo Worker 초기화 
+        # 2. DAQ Worker 초기화 
         self.scan_thread = QThread()
         self.scan_worker = PLScanWorker()
         self.scan_worker.moveToThread(self.scan_thread)
@@ -96,6 +99,35 @@ class AppController(QObject):
         
         self.galvo_thread.start()
 
+        # 5. Piezo Worker 초기화 및 배선
+        self.piezo_thread = QThread()
+        self.piezo_worker = PiezoWorker()
+        self.piezo_worker.moveToThread(self.piezo_thread)
+        self.piezo_worker.sig_message.connect(self._on_worker_message)
+        
+        # 폴링되어 올라오는 현재 Z 위치를 UI 레이블에 실시간으로 쏴줌
+        self.piezo_worker.sig_position_updated.connect(
+            lambda z: self.left_panel.lbl_piezo_live.setText(f"Z: {z:.3f} μm")
+        )
+        self.piezo_thread.start()
+                # 스레드가 안전하게 뜬 후, 내부 타이머 생성을 위해 initialize 호출
+        QMetaObject.invokeMethod(self.piezo_worker, "initialize", Qt.QueuedConnection)
+        # 6. OBIS Laser Worker 초기화 및 배선
+        self.obis_thread = QThread()
+        self.obis_worker = ObisWorker()
+        self.obis_worker.moveToThread(self.obis_thread)
+        
+        # 메시지는 왼쪽 패널 콘솔로 통일해서 쏜다
+        self.obis_worker.sig_message.connect(self._on_worker_message)
+        
+        self.obis_thread.start()
+        
+        # 스레드가 안전하게 뜬 후, 내부 타이머 생성을 위해 initialize 호출
+        QMetaObject.invokeMethod(self.obis_worker, "initialize", Qt.QueuedConnection)
+        
+        # 내부 상태 추적용 딕셔너리 (UI 토글 및 동기화 방어용)
+        self._obis_state = {'connected': False, 'laser_532': False, 'laser_633': False}
+
     def _get_current_scan_params(self):
         """UI에서 스캔 파라미터를 추출하여 딕셔너리로 반환한다. 변환 실패 시 None 반환."""
         try:
@@ -127,6 +159,17 @@ class AppController(QObject):
         self.right_panel.btn_ws_acquire.clicked.connect(self.handle_ws_acquire)
 
         # ==========================================
+        # Right Panel (OBIS Lasers) -> Controller
+        # ==========================================
+        self.right_panel.btn_obis_connect.clicked.connect(self.handle_obis_connect)
+        self.right_panel.btn_obis_532.clicked.connect(lambda: self.handle_obis_toggle('laser_532'))
+        self.right_panel.btn_obis_633.clicked.connect(lambda: self.handle_obis_toggle('laser_633'))
+        
+        # 톱니바퀴 버튼 (팝업 호출)
+        self.right_panel.btn_obis_532_cfg.clicked.connect(lambda: self.show_obis_config('laser_532'))
+        self.right_panel.btn_obis_633_cfg.clicked.connect(lambda: self.show_obis_config('laser_633'))
+
+        # ==========================================
         # Left Panel (Scan / APD / Move) -> Controller
         # ==========================================
         # -- image I/O  -- 
@@ -141,8 +184,11 @@ class AppController(QObject):
         # ── Move Control (Galvo / Piezo) 연결 ──
         self.left_panel.btn_galvo_move.clicked.connect(self.handle_galvo_move)
         self.left_panel.btn_set_zero.clicked.connect(self.handle_galvo_set_zero)
-        
+        self.left_panel.btn_piezo_connect.clicked.connect(self.handle_piezo_connect)
+        self.left_panel.btn_piezo_disconnect.clicked.connect(self.handle_piezo_disconnect)
+
         self.left_panel.btn_piezo_move.clicked.connect(self.handle_piezo_move)
+
         # Sub-window (APD Count) -> Controller
         # ==========================================
         # 창 닫힘 → 폴링 중단 & UI 원복
@@ -165,12 +211,6 @@ class AppController(QObject):
         self.left_panel.btn_left.clicked.connect(lambda: self.handle_galvo_arrow('left'))
         self.left_panel.btn_right.clicked.connect(lambda: self.handle_galvo_arrow('right'))
 
-
-        self.left_panel.btn_up.clicked.connect(lambda: self.handle_galvo_arrow('up'))
-        self.left_panel.btn_down.clicked.connect(lambda: self.handle_galvo_arrow('down'))
-        self.left_panel.btn_left.clicked.connect(lambda: self.handle_galvo_arrow('left'))
-        self.left_panel.btn_right.clicked.connect(lambda: self.handle_galvo_arrow('right'))
-        
         # 🟢 메인 윈도우에서 낚아챈 전역 화살표 키 시그널 연결 추가
         self.main_window.sig_arrow_pressed.connect(self.handle_galvo_arrow)
 
@@ -202,6 +242,8 @@ class AppController(QObject):
         # APD (데이터 스트림만)
         self.apd_worker.sig_counts_updated.connect(self.apd_window.update_plot)
 
+        # OBIS Laser 상태 폴링 업데이트
+        self.obis_worker.sig_status_updated.connect(self._on_obis_status_updated)
 
 
     # -------------------------------------------------------------------------
@@ -266,27 +308,6 @@ class AppController(QObject):
     # -------------------------------------------------------------------------
     # Manual Move Handlers
     # -------------------------------------------------------------------------
-    def handle_galvo_move(self):
-            """Galvo X, Y 수동 이동 명령"""
-            from PyQt5.QtCore import QMetaObject, Qt, Q_ARG
-            try:
-                x_um = float(self.left_panel.le_galvo_x.text())
-                y_um = float(self.left_panel.le_galvo_y.text())
-                
-                # GalvoWorker의 move_to 슬롯으로 비동기 명령 하달
-                QMetaObject.invokeMethod(
-                    self.galvo_worker, "move_to", 
-                    Qt.QueuedConnection, 
-                    Q_ARG(float, x_um), Q_ARG(float, y_um)
-                )
-            except ValueError:
-                self.left_panel.lbl_scan_info.setText("Error: 좌표는 숫자여야 함.")
-                self.left_panel.lbl_scan_info.setStyleSheet("color: red;")
-
-    def handle_galvo_set_zero(self):
-        self.left_panel.le_galvo_x.setText("0.0")
-        self.left_panel.le_galvo_y.setText("0.0")
-        self.handle_galvo_move()
 
     def handle_piezo_move(self):
         """Piezo Z 수동 이동 명령"""
@@ -297,7 +318,23 @@ class AppController(QObject):
         except ValueError:
             pass
 
+    def handle_piezo_connect(self):
+        port = self.left_panel.le_piezo_port.text().strip()
+        from PyQt5.QtCore import QMetaObject, Qt, Q_ARG
+        QMetaObject.invokeMethod(self.piezo_worker, "connect_device", 
+                                 Qt.QueuedConnection, Q_ARG(str, port))
         
+        self.left_panel.btn_piezo_connect.setEnabled(False)
+        self.left_panel.btn_piezo_disconnect.setEnabled(True)
+
+    def handle_piezo_disconnect(self):
+        from PyQt5.QtCore import QMetaObject, Qt
+        QMetaObject.invokeMethod(self.piezo_worker, "disconnect_device", 
+                                 Qt.QueuedConnection)
+        
+        self.left_panel.btn_piezo_connect.setEnabled(True)
+        self.left_panel.btn_piezo_disconnect.setEnabled(False)
+
     def _on_apd_window_closed(self):
         """APD 창의 X 버튼을 누르거나 코드로 close() 했을 때 상태 복구 및 스레드 종료"""        
         QMetaObject.invokeMethod(self.apd_worker, "stop_counting", Qt.QueuedConnection)
@@ -331,6 +368,111 @@ class AppController(QObject):
                 self.main_window.status_left_label.setText("State: apd_counting")
                 QMetaObject.invokeMethod(self.apd_worker, "start_counting", 
                                         Qt.QueuedConnection, Q_ARG(float, expo), Q_ARG(int, 50))
+
+    # -------------------------------------------------------------------------
+    # OBIS Laser Handlers
+    # -------------------------------------------------------------------------
+    def handle_obis_connect(self):
+        """서버 연결 요청. (UI는 응답이 올 때까지 잠금 상태로 대기)"""
+        from PyQt5.QtCore import QMetaObject, Qt, Q_ARG
+        
+        self.right_panel.btn_obis_connect.setEnabled(False) # 응답 올 때까지 연타 방지
+        
+        if not self._obis_state.get('connected', False):
+            ip = self.right_panel.le_obis_ip.text().strip()
+            self.right_panel.btn_obis_connect.setText("Connecting...")
+            QMetaObject.invokeMethod(self.obis_worker, "connect_server", 
+                                     Qt.QueuedConnection, Q_ARG(str, ip), Q_ARG(int, 9000))
+        else:
+            self.right_panel.btn_obis_connect.setText("Disconnecting...")
+            QMetaObject.invokeMethod(self.obis_worker, "disconnect_server", Qt.QueuedConnection)
+    
+    def _on_obis_connection_changed(self, connected):
+        """워커에서 물리적 연결 상태를 확정지었을 때 UI를 동기화한다."""
+        self._obis_state['connected'] = connected
+        self.right_panel.btn_obis_connect.setEnabled(True)
+        
+        if connected:
+            self.right_panel.btn_obis_connect.setText("Disconnect Server")
+            self.right_panel.btn_obis_532.setEnabled(True)
+            self.right_panel.btn_obis_633.setEnabled(True)
+            self.right_panel.btn_obis_532_cfg.setEnabled(True)
+            self.right_panel.btn_obis_633_cfg.setEnabled(True)
+        else:
+            self.right_panel.btn_obis_connect.setText("Connect Server")
+            self.right_panel.btn_obis_532.setEnabled(False)
+            self.right_panel.btn_obis_633.setEnabled(False)
+            self.right_panel.btn_obis_532_cfg.setEnabled(False)
+            self.right_panel.btn_obis_633_cfg.setEnabled(False)
+            
+            # 서버가 다운되었을 때 남은 잔상 지우기 및 안전 초기화
+            self.right_panel.btn_obis_532.setText("⚫ 532nm OFF")
+            self.right_panel.btn_obis_532.setStyleSheet("")
+            self.right_panel.lbl_obis_532_status.setText("--- mW [Offline]")
+            
+            self.right_panel.btn_obis_633.setText("⚫ 633nm OFF")
+            self.right_panel.btn_obis_633.setStyleSheet("")
+            self.right_panel.lbl_obis_633_status.setText("--- mW [Offline]")
+
+    def handle_obis_toggle(self, target):
+        """각 레이저의 Emission 상태를 토글(ON/OFF)한다."""
+        from PyQt5.QtCore import QMetaObject, Qt, Q_ARG
+        
+        # 내부 상태 사전을 읽어 반대 상태(Not)를 명령으로 하달
+        current_state = self._obis_state.get(target, False)
+        new_state = not current_state
+        
+        QMetaObject.invokeMethod(self.obis_worker, "set_state", 
+                                 Qt.QueuedConnection, Q_ARG(str, target), Q_ARG(bool, new_state))
+
+    def show_obis_config(self, target):
+        """팝업 다이얼로그를 띄워 파워를 설정한다 (Modal)"""
+        from PyQt5.QtCore import QMetaObject, Qt, Q_ARG
+        
+        # 현재 UI 라벨에서 파워 값만 파싱(추출)해서 팝업의 기본값으로 넘김
+        lbl = self.right_panel.lbl_obis_532_status if target == 'laser_532' else self.right_panel.lbl_obis_633_status
+        txt = lbl.text()
+        try:
+            curr_pow = float(txt.split()[0])
+        except (ValueError, IndexError):
+            curr_pow = 0.0
+            
+        dialog = LaserConfigDialog(target_name=target, current_power=curr_pow, parent=self.main_window)
+        
+        # 모달 창이 열려있는 동안 메인 UI 루프는 대기하지만, 
+        # 백그라운드 폴링(Polling) 스레드는 멈추지 않으므로 Race Condition을 우회할 수 있음.
+        if dialog.exec_() == dialog.Accepted:
+            new_power = dialog.get_power()
+            QMetaObject.invokeMethod(self.obis_worker, "set_power", 
+                                     Qt.QueuedConnection, Q_ARG(str, target), Q_ARG(float, new_power))
+
+    def _on_obis_status_updated(self, data):
+        """워커의 폴링 데이터를 해석하여 2초마다 UI 라벨과 버튼의 디자인을 갱신한다."""
+        for target, btn, lbl in [
+            ('laser_532', self.right_panel.btn_obis_532, self.right_panel.lbl_obis_532_status),
+            ('laser_633', self.right_panel.btn_obis_633, self.right_panel.lbl_obis_633_status)
+        ]:
+            info = data.get(target)
+            if info is None:
+                continue
+                
+            power = info.get('power', 0.0)
+            is_on = info.get('emission', False)
+            interlock = info.get('interlock', 'Unknown')
+            
+            # 동기화 락(Lock)을 위해 내부 상태 갱신
+            self._obis_state[target] = is_on
+            
+            lbl.setText(f"{power:.1f} mW [{interlock}]")
+            
+            if is_on:
+                btn.setText(f"⚡ {target.split('_')[1]}nm ON")
+                btn.setStyleSheet("background-color: #FF9800; color: white; font-weight: bold;")
+            else:
+                btn.setText(f"⚫ {target.split('_')[1]}nm OFF")
+                btn.setStyleSheet("")
+
+
 
     # -------------------------------------------------------------------------
     # Worker Callbacks (상태 갱신)
@@ -668,68 +810,6 @@ class AppController(QObject):
         else:
             self.left_panel.lbl_scan_info.setText(msg)
             self.left_panel.lbl_scan_info.setStyleSheet("color: gray;")
-    
-    def handle_map_clicked(self, x, y):
-        """PL 맵 클릭 처리: 데이터 Read-out과 하드웨어 이동(조건부)을 분리한다."""
-        # 1. UI 좌표 텍스트 갱신
-        self.left_panel.le_galvo_x.setText(f"{x:.3f}")
-        self.left_panel.le_galvo_y.setText(f"{y:.3f}")
-        
-        # 2. 하드웨어 연결 여부와 무관하게 화면의 파란 원(Indicator) 위치를 즉각 갱신
-        # (오프라인 모드에서의 Optimistic UI Update)
-        self.center_panel.update_galvo_indicator(x, y)
-        
-        # 3. 데이터 Read-out: 현재 화면에 PL 데이터가 로드되어 있다면, 클릭한 좌표의 Count 추출
-        if getattr(self, '_latest_pl_data', None) is not None and getattr(self, '_latest_extent', None) is not None:
-            import numpy as np
-            x_min, x_max, y_min, y_max = self._latest_extent
-            y_steps, x_steps = self._latest_pl_data.shape
-            
-            # 물리적 좌표(um)를 배열의 인덱스(Pixel)로 역산출 (범위 초과 시 가장자리 값으로 클램핑)
-            col = int(np.clip((x - x_min) / (x_max - x_min) * (x_steps - 1) if x_max != x_min else 0, 0, x_steps - 1))
-            row = int(np.clip((y - y_min) / (y_max - y_min) * (y_steps - 1) if y_max != y_min else 0, 0, y_steps - 1))
-            
-            # 클릭한 지점의 Photon Count 값
-            val = self._latest_pl_data[row, col]
-            
-            # Image 탭의 로그 라벨에 좌표와 카운트 수를 예쁘게 쏴준다
-            self.left_panel.lbl_image_info.setText(f"[Point Read] X: {x:.3f}, Y: {y:.3f} | Count: {val:.1f}")
-            self.left_panel.lbl_image_info.setStyleSheet("color: magenta; font-weight: bold;")
-            
-        # 4. 하드웨어 연결 여부 판단 및 제한적 명령 하달
-        # 워커 내부에 _is_connected 상태가 True일 때만 실제 장비 이동 명령을 트리거함
-        is_connected = getattr(self.galvo_worker, '_is_connected', False)
-        
-        if is_connected:
-            self.handle_galvo_move()
-        else:
-            # 오프라인 상태: 장비가 없으니 이동 명령은 무시하고 로그만 한 줄 남김 (필요시 제거 가능)
-            pass
-
-    def handle_galvo_arrow(self, direction):
-        """화살표 키 클릭 시 현재 위치에서 지정된 스텝(Step)만큼 이동한다."""
-        try:
-            x = float(self.left_panel.le_galvo_x.text())
-            y = float(self.left_panel.le_galvo_y.text())
-            
-            # 스텝 사이즈 설정 (현재 UI에 입력란이 없으므로 일단 0.5μm로 고정)
-            # 필요하면 나중에 좌측 패널에 le_galvo_step 같은 위젯을 만들고 연동해.
-            step = 0.5 
-            
-            if direction == 'up': y += step
-            elif direction == 'down': y -= step
-            elif direction == 'left': x -= step
-            elif direction == 'right': x += step
-            
-            self.left_panel.le_galvo_x.setText(f"{x:.3f}")
-            self.left_panel.le_galvo_y.setText(f"{y:.3f}")
-            
-            # 값 변경 후 이동 명령 수행
-            self.handle_galvo_move()
-            
-        except ValueError:
-            self.left_panel.lbl_image_info.setText("Error: Galvo 수동 제어 전 좌표를 확인하라.")
-            self.left_panel.lbl_image_info.setStyleSheet("color: red;")
 
     # -------------------------------------------------------------------------
     # PicoHarp Handlers
@@ -760,6 +840,92 @@ class AppController(QObject):
         self.right_panel.btn_ph_start_hist.setEnabled(True)
         self.right_panel.btn_ph_start_t2.setEnabled(True)
         self.right_panel.btn_ph_stop.setEnabled(False)
+
+    # -------------------------------------------------------------------------
+    # Galvo Move: 통합 진입점 (Single Source of Truth)
+    # -------------------------------------------------------------------------
+    def _commit_galvo_move(self, x_um, y_um):
+        """
+        Galvo 이동의 유일한 진입점.
+        맵 클릭, 화살표 패드, Move 버튼, Zero 버튼 등 모든 경로가 여기로 모인다.
+        """
+        from PyQt5.QtCore import QMetaObject, Qt, Q_ARG
+        
+        # 1. UI 파라미터 강제 동기화 (입력창 갱신)
+        self.left_panel.le_galvo_x.setText(f"{x_um:.3f}")
+        self.left_panel.le_galvo_y.setText(f"{y_um:.3f}")
+        
+        # 2. 회색 점선 마커로 이동 '예정' 지점 즉시 표시 (Optimistic UI)
+        self.center_panel.set_galvo_target(x_um, y_um)
+        
+        # 3. 데이터 Read-out: 현재 화면에 PL 데이터가 로드되어 있다면, 해당 좌표의 Count 추출
+        if getattr(self, '_latest_pl_data', None) is not None and getattr(self, '_latest_extent', None) is not None:
+            import numpy as np
+            x_min, x_max, y_min, y_max = self._latest_extent
+            y_steps, x_steps = self._latest_pl_data.shape
+            
+            # 물리적 좌표(um)를 배열의 인덱스(Pixel)로 역산출
+            col = int(np.clip((x_um - x_min) / (x_max - x_min) * (x_steps - 1) if x_max != x_min else 0, 0, x_steps - 1))
+            row = int(np.clip((y_um - y_min) / (y_max - y_min) * (y_steps - 1) if y_max != y_min else 0, 0, y_steps - 1))
+            
+            val = self._latest_pl_data[row, col]
+            
+            # Image 탭의 로그 라벨에 좌표와 카운트 수 렌더링
+            self.left_panel.lbl_image_info.setText(f"[Point Read] X: {x_um:.3f}, Y: {y_um:.3f} | Count: {val:.1f}")
+            self.left_panel.lbl_image_info.setStyleSheet("color: magenta; font-weight: bold;")
+            
+        # 4. 하드웨어 워커로 비동기 큐잉 (온/오프라인 판단은 Worker가 알아서 함)
+        QMetaObject.invokeMethod(
+            self.galvo_worker, "move_to", Qt.QueuedConnection,
+            Q_ARG(float, x_um), Q_ARG(float, y_um)
+        )
+
+    # -------------------------------------------------------------------------
+    # Manual Move Handlers (프록시 핸들러들)
+    # -------------------------------------------------------------------------
+    def handle_map_clicked(self, x, y):
+        """PL 맵 클릭 이벤트"""
+        self._commit_galvo_move(x, y)
+
+    def handle_galvo_move(self):
+        """UI Move 버튼 이벤트"""
+        try:
+            x_um = float(self.left_panel.le_galvo_x.text())
+            y_um = float(self.left_panel.le_galvo_y.text())
+            self._commit_galvo_move(x_um, y_um)
+        except ValueError:
+            self.left_panel.lbl_scan_info.setText("Error: 좌표는 숫자여야 함.")
+            self.left_panel.lbl_scan_info.setStyleSheet("color: red;")
+
+    def handle_galvo_set_zero(self):
+        """UI Zero 버튼 이벤트"""
+        self._commit_galvo_move(0.0, 0.0)
+
+    def handle_galvo_arrow(self, direction):
+        """화살표 키/버튼 이벤트"""
+        try:
+            x = float(self.left_panel.le_galvo_x.text())
+            y = float(self.left_panel.le_galvo_y.text())
+            
+            try:
+                step = float(self.left_panel.le_galvo_step.text())
+            except ValueError:
+                # 사용자가 빈칸으로 두거나 이상한 문자를 넣었을 경우의 방어 로직
+                step = 0.5 
+                self.left_panel.le_galvo_step.setText("0.5")
+            
+            if direction == 'up': y += step
+            elif direction == 'down': y -= step
+            elif direction == 'left': x -= step
+            elif direction == 'right': x += step
+            
+            self._commit_galvo_move(x, y)
+            
+        except ValueError:
+            self.left_panel.lbl_image_info.setText("Error: Galvo 수동 제어 전 좌표를 확인하라.")
+            self.left_panel.lbl_image_info.setStyleSheet("color: red;")
+
+
 
 
     def shutdown(self):
@@ -811,6 +977,19 @@ class AppController(QObject):
         except Exception as e:
             print(f"[shutdown] ph stop error: {e}")
 
+        # 1-5. Piezo disconnect (시리얼 포트 안전 해제 및 폴링 타이머 중단)
+        try:
+            QMetaObject.invokeMethod(self.piezo_worker, "disconnect_device",
+                                     Qt.BlockingQueuedConnection)
+        except Exception as e:
+            print(f"[shutdown] piezo disconnect error: {e}")
+
+        # 1-6. OBIS Server disconnect
+        try:
+            QMetaObject.invokeMethod(self.obis_worker, "disconnect_server",
+                                     Qt.BlockingQueuedConnection)
+        except Exception as e:
+            print(f"[shutdown] obis disconnect error: {e}")
         # ---------------------------------------------------------------
         # 2. 스레드 종료 (quit → wait, 타임아웃으로 데드락 방지)
         # ---------------------------------------------------------------
@@ -832,6 +1011,7 @@ class AppController(QObject):
         _stop_thread(getattr(self, 'galvo_thread', None), "galvo_thread")
         _stop_thread(getattr(self, 'scan_thread', None), "scan_thread")
         _stop_thread(getattr(self, 'ws_thread',   None), "ws_thread")
-        _stop_thread(getattr(self, 'ph_thread', None), "ph_thread")  # 예정
-
+        _stop_thread(getattr(self, 'ph_thread', None), "ph_thread") 
+        _stop_thread(getattr(self, 'piezo_thread', None), "piezo_thread")
+        _stop_thread(getattr(self, 'obis_thread', None), "obis_thread")
     
