@@ -487,18 +487,22 @@ def run_autofocus(piezo, count_task, dwell=0.15,
 # ═══════════════════════════════════════════════════════════
 
 def save_autofocus_result(result, save_dir, prefix=""):
-    """Auto-Focus 결과를 파일로 저장."""
+    """Auto-Focus 결과를 텍스트 파일과 CSV 파일로 동시 저장한다."""
     import os
+    import csv
+    from itertools import zip_longest
     from datetime import datetime
 
     os.makedirs(save_dir, exist_ok=True)
     ts = datetime.now().strftime("%y%m%d_%H%M%S")
-    fname = f"{prefix}autofocus_{ts}.txt" if prefix else f"autofocus_{ts}.txt"
-    fpath = os.path.join(save_dir, fname)
 
     mode = result.get("focus_mode", "plateau_center")
 
-    with open(fpath, "w") as f:
+    # 1. TXT 파일 저장 (메타데이터 및 로깅용)
+    txt_fname = f"{prefix}autofocus_{ts}.txt" if prefix else f"autofocus_{ts}.txt"
+    txt_fpath = os.path.join(save_dir, txt_fname)
+
+    with open(txt_fpath, "w", encoding="utf-8") as f:
         f.write(f"# Auto-Focus Result\n")
         f.write(f"# Focus Mode: {mode}\n")
         f.write(f"# Final Z: {result['center_z']:.3f} μm\n")
@@ -526,8 +530,32 @@ def save_autofocus_result(result, save_dir, prefix=""):
         for z, cps in result["fine_data"]:
             f.write(f"{z:.3f}\t{cps:.2e}\n")
 
-    print(f"[AutoFocus] 결과 저장: {fpath}")
-    return fpath
+    # 2. CSV 파일 저장 (Origin / Excel 데이터 분석용 4-Column 포맷)
+    csv_fname = f"{prefix}autofocus_{ts}.csv" if prefix else f"autofocus_{ts}.csv"
+    csv_fpath = os.path.join(save_dir, csv_fname)
+
+    coarse = result["coarse_data"]
+    fine = result["fine_data"]
+
+    with open(csv_fpath, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        # 메타데이터 헤더 (분석 툴에서 주석으로 무시할 수 있도록 # 기호 추가)
+        writer.writerow([f"# Focus Mode: {mode}", f"Target Z: {result['center_z']:.3f}"])
+        # 데이터 컬럼 헤더
+        writer.writerow(["Coarse_Z(um)", "Coarse_CPS", "Fine_Z(um)", "Fine_CPS"])
+
+        # zip_longest를 사용하여 길이가 다른 Coarse와 Fine 데이터를 나란히 패킹
+        for c_row, f_row in zip_longest(coarse, fine, fillvalue=("", "")):
+            # 소수점 포맷팅 적용 (빈 문자열일 경우 TypeError 방어를 위해 타입 체크)
+            c_z = f"{c_row[0]:.3f}" if isinstance(c_row[0], (int, float)) else ""
+            c_cps = f"{c_row[1]:.2f}" if isinstance(c_row[1], (int, float)) else ""
+            f_z = f"{f_row[0]:.3f}" if isinstance(f_row[0], (int, float)) else ""
+            f_cps = f"{f_row[1]:.2f}" if isinstance(f_row[1], (int, float)) else ""
+            
+            writer.writerow([c_z, c_cps, f_z, f_cps])
+
+    print(f"[AutoFocus] 결과 저장 완료: {txt_fpath} 및 {csv_fpath}")
+    return txt_fpath
 
 
 def plot_autofocus_result(result, save_dir, prefix=""):

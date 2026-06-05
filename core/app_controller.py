@@ -12,7 +12,6 @@ from ui.laser_config_dialog import LaserConfigDialog
 # 하드웨어 워커들
 from core.daq_workers import PLScanWorker, ContinuousAPDWorker, GalvoWorker
 from core.winspec_worker import WinSpecWorker
-from core.daq_workers import PLScanWorker, ContinuousAPDWorker         
 from core.picoharp_worker import PicoHarpWorker 
 from core.piezo_worker import PiezoWorker
 from core.obis_worker import ObisWorker
@@ -975,8 +974,8 @@ class AppController(QObject):
                 QMetaObject.invokeMethod(self.ph_worker, "stop_measurement",
                                          Qt.BlockingQueuedConnection)
                 # DLL 메모리 누수 및 포트 Lock 방지를 위한 명시적 연결 해제
-                QMetaObject.invokeMethod(self.ph_worker, "close_connection",
-                                     Qt.BlockingQueuedConnection)
+            QMetaObject.invokeMethod(self.ph_worker, "close_connection",
+                                    Qt.BlockingQueuedConnection)
         except Exception as e:
             print(f"[shutdown] ph stop error: {e}")
 
