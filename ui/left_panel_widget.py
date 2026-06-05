@@ -329,7 +329,7 @@ class LeftPanelWidget(QWidget):
         self.le_af_zmin = QLineEdit(str(AF_Z_MIN))
         self.le_af_zmax = QLineEdit(str(AF_Z_MAX))
         
-        # 🟢 [수정] 깡통 Placeholder를 지우고 실제 위젯들을 가로로 묶어서 추가
+        
         af_range_layout = QHBoxLayout()
         af_range_layout.addWidget(self.le_af_zmin)
         af_range_layout.addWidget(QLabel("~"))

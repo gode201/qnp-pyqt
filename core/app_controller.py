@@ -974,6 +974,9 @@ class AppController(QObject):
             if getattr(self.ph_worker, '_is_measuring', False):
                 QMetaObject.invokeMethod(self.ph_worker, "stop_measurement",
                                          Qt.BlockingQueuedConnection)
+                # DLL 메모리 누수 및 포트 Lock 방지를 위한 명시적 연결 해제
+                QMetaObject.invokeMethod(self.ph_worker, "close_connection",
+                                     Qt.BlockingQueuedConnection)
         except Exception as e:
             print(f"[shutdown] ph stop error: {e}")
 

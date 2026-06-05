@@ -7,7 +7,7 @@ import time
 import os
 import atexit
 
-from xDev import (
+from hardware.xDev import (
     xDev_load_dll, xDev_init, xDev_exit,
     xDev_get_pos, xDev_move, xDev_move_inc,
     xDev_set_svo_softly, xDev_get_svo, xDev_get_ont,

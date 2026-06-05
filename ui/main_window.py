@@ -94,29 +94,42 @@ class DAQMainWindow(QMainWindow):
                 self.center_panel.update_histogram([], [])
 
     def eventFilter(self, obj, event):
-        """
-        이벤트 버블링을 무시하고 가장 먼저 키보드 이벤트를 검사한다.
-        """
-        if event.type() == QEvent.KeyPress:
-            from PyQt5.QtWidgets import QLineEdit
-            
-            # 현재 포커스가 텍스트 입력창(QLineEdit)에 있다면 편집을 위해 키를 얌전히 양보함
-            if isinstance(QApplication.focusWidget(), QLineEdit):
-                return super().eventFilter(obj, event)
+            """
+            이벤트 버블링을 무시하고 가장 먼저 키보드 이벤트를 검사한다.
+            Galvo 방향키 제어는 '마우스가 스캔 맵 위에 있거나', '스캔 맵이 포커스를 가질 때'만 작동하도록 철저히 격리.
+            """
+            if event.type() == QEvent.KeyPress:
+                key = event.key()
+                if key in (Qt.Key_Up, Qt.Key_Down, Qt.Key_Left, Qt.Key_Right):
+                    from PyQt5.QtWidgets import QApplication
+                    
+                    # 1. 마우스 커서가 센터 패널(스캔 맵 영역) 위에 있는지 확인
+                    is_mouse_on_map = self.center_panel.underMouse() or self.center_panel.canvas.underMouse()
+                    
+                    # 2. 현재 포커스가 센터 패널 내부의 위젯에 있는지 확인
+                    focus_widget = QApplication.focusWidget()
+                    is_map_focused = False
+                    p = focus_widget
+                    while p is not None:
+                        if p == self.center_panel:
+                            is_map_focused = True
+                            break
+                        p = p.parentWidget()
+                    
+                    # [핵심 로직] 사용자의 의도가 명확히 '맵 제어'에 있을 때만 Galvo 제어권 탈취
+                    if is_mouse_on_map or is_map_focused:
+                        # 왼쪽 패널 텍스트창 등에 포커스가 남아있다면 캔버스로 강제 회수 (입력 커서 끄기)
+                        if not is_map_focused:
+                            self.center_panel.canvas.setFocus()
+                            
+                        if key == Qt.Key_Up: self.sig_arrow_pressed.emit('up')
+                        elif key == Qt.Key_Down: self.sig_arrow_pressed.emit('down')
+                        elif key == Qt.Key_Left: self.sig_arrow_pressed.emit('left')
+                        elif key == Qt.Key_Right: self.sig_arrow_pressed.emit('right')
+                        return True # 이벤트를 삼켜서 텍스트 커서가 움직이는 등 UI 기본 동작 차단
+                    
+                    # 맵 영역 밖(왼쪽/오른쪽 패널)에서 마우스를 두고 텍스트 수정 등을 하고 있다면, 
+                    # 프레임워크 기본 로직(글자 커서 이동 등)에 방향키를 온전히 양보함
+                    return super().eventFilter(obj, event)
 
-            key = event.key()
-            if key == Qt.Key_Up:
-                self.sig_arrow_pressed.emit('up')
-                return True  # True를 반환하면 이벤트를 완전히 소비하여 캔버스로 넘어가는 것을 막음
-            elif key == Qt.Key_Down:
-                self.sig_arrow_pressed.emit('down')
-                return True
-            elif key == Qt.Key_Left:
-                self.sig_arrow_pressed.emit('left')
-                return True
-            elif key == Qt.Key_Right:
-                self.sig_arrow_pressed.emit('right')
-                return True
-
-        # 방향키가 아니거나 마우스 클릭 등 다른 이벤트면 원래 프레임워크 흐름대로 흘려보냄
-        return super().eventFilter(obj, event)
+            return super().eventFilter(obj, event)

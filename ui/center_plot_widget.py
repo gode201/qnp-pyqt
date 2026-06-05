@@ -3,7 +3,7 @@ import matplotlib
 matplotlib.use('Qt5Agg')
 
 from PyQt5.QtWidgets import QWidget, QVBoxLayout
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import pyqtSignal, Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.gridspec as gridspec
@@ -29,6 +29,7 @@ class CenterPlotWidget(QWidget):
         # Figure 및 Canvas 생성
         self.fig = Figure(figsize=(10, 9))
         self.canvas = FigureCanvas(self.fig)
+        self.canvas.setFocusPolicy(Qt.StrongFocus)
         self.layout.addWidget(self.canvas)
 
     def _init_plots(self):
