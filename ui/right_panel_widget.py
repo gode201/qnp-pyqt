@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFormLayout, 
                              QTabWidget, QGroupBox, QLabel, QLineEdit, QPushButton, 
-                             QCheckBox, QSpinBox, QProgressBar, QToolButton,
+                             QCheckBox, QSpinBox, QProgressBar, QToolButton, QFrame,
                              QRadioButton, QButtonGroup) # QRadioButton, QButtonGroup 추가
 from PyQt5.QtCore import pyqtSignal, Qt
 
@@ -24,6 +24,15 @@ class RightPanelWidget(QWidget):
     sig_ph_start_t2 = pyqtSignal(dict)
 
     sig_view_mode_changed = pyqtSignal(str) # 'picoharp' 또는 'winspec' 발송
+    # -------------------------------------------------------------------------
+    # laser
+    # -------------------------------------------------------------------------
+    sig_obis_connect     = pyqtSignal(str)          # ip
+    sig_obis_toggle      = pyqtSignal(str, bool)    # target_id, want_on
+    sig_obis_set_power   = pyqtSignal(str, float)   # target_id, mW
+    sig_obis_diagnostics = pyqtSignal(str)          # target_id  (선택)
+
+
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -338,6 +347,10 @@ class RightPanelWidget(QWidget):
             
     def _build_obis_group(self):
         """OBIS 레이저 통합 제어부 (Single Server Connection)"""
+        # 토글 상태 / 마지막 파워 캐시 (Dialog 초기값으로 사용)
+        self._obis_on    = {'laser_532': False, 'laser_633': False}
+        self._obis_power = {'laser_532': 0.0,   'laser_633': 0.0}   # mW
+
         group = QGroupBox("OBIS Lasers")
         layout = QVBoxLayout()
         layout.setSpacing(8)
@@ -347,16 +360,19 @@ class RightPanelWidget(QWidget):
         self.le_obis_ip = QLineEdit(OBIS_IP) 
         self.btn_obis_connect = QPushButton("Connect Server")
         self.btn_obis_connect.setStyleSheet("font-weight: bold;")
-        
+        self.btn_obis_connect.clicked.connect(
+            lambda: self.sig_obis_connect.emit(self.le_obis_ip.text().strip())
+        )
+                
         conn_layout.addWidget(QLabel("IP:"))
         conn_layout.addWidget(self.le_obis_ip)
         conn_layout.addWidget(self.btn_obis_connect)
         layout.addLayout(conn_layout)
 
         # 시각적 구분을 위한 수평선(Line)
-        line = QLabel()
-        line.setFrameShape(QLabel.HLine)
-        line.setFrameShadow(QLabel.Sunken)
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setFrameShadow(QFrame.Sunken)
         layout.addWidget(line)
 
         # 2. 532nm 레이저 제어부 (오직 Emission ON/OFF만 담당)
@@ -364,7 +380,11 @@ class RightPanelWidget(QWidget):
         self.btn_obis_532 = QPushButton("⚫ 532nm OFF")
         self.btn_obis_532.setFixedWidth(100)
         self.btn_obis_532.setEnabled(False) # 서버 연결 전까지는 조작 불가(Lock)
-        
+        self.btn_obis_532.setCheckable(False)  # 상태는 self._obis_on으로 관리
+        self.btn_obis_532.clicked.connect(
+            lambda: self.sig_obis_toggle.emit('laser_532',
+                                            not self._obis_on['laser_532'])
+        )
         self.lbl_obis_532_status = QLabel("--- mW")
         self.lbl_obis_532_status.setStyleSheet("font-family: Consolas; font-size: 11px;")
         
@@ -382,7 +402,11 @@ class RightPanelWidget(QWidget):
         self.btn_obis_633 = QPushButton("⚫ 633nm OFF")
         self.btn_obis_633.setFixedWidth(100)
         self.btn_obis_633.setEnabled(False)
-        
+        self.btn_obis_532.setCheckable(False)  # 상태는 self._obis_on으로 관리
+        self.btn_obis_532.clicked.connect(
+            lambda: self.sig_obis_toggle.emit('laser_633',
+                                            not self._obis_on['laser_633'])
+        )
         self.lbl_obis_633_status = QLabel("--- mW")
         self.lbl_obis_633_status.setStyleSheet("font-family: Consolas; font-size: 11px;")
         
@@ -401,3 +425,35 @@ class RightPanelWidget(QWidget):
         group.setLayout(layout)
         
         return group
+    
+    def _open_obis_config(self, target_id: str):
+        from laser_config_dialog import LaserConfigDialog   # 실제 경로에 맞게
+        cur = self._obis_power.get(target_id, 0.0)
+        dlg = LaserConfigDialog(target_name=target_id,
+                                current_power=cur, parent=self)
+        if dlg.exec_() == dlg.Accepted:
+            self.sig_obis_set_power.emit(target_id, dlg.get_power())
+
+    def set_obis_connected(self, connected: bool):
+        for w in (self.btn_obis_532, self.btn_obis_532_cfg,
+                self.btn_obis_633, self.btn_obis_633_cfg):
+            w.setEnabled(connected)
+        self.btn_obis_connect.setText("Disconnect" if connected else "Connect Server")
+
+    def update_obis_status(self, target_id: str, is_on, power_w):
+        on = (str(is_on).upper() == 'ON')
+        self._obis_on[target_id] = on
+        try:
+            mw = float(power_w) * 1000.0
+            self._obis_power[target_id] = mw
+            power_txt = f"{mw:.2f} mW"
+        except (TypeError, ValueError):
+            power_txt = f"{power_w}"
+
+        if target_id == 'laser_532':
+            btn, lbl, tag = self.btn_obis_532, self.lbl_obis_532_status, "532nm"
+        else:
+            btn, lbl, tag = self.btn_obis_633, self.lbl_obis_633_status, "633nm"
+
+        btn.setText(f"{'🟢' if on else '⚫'} {tag} {'ON' if on else 'OFF'}")
+        lbl.setText(power_txt)
