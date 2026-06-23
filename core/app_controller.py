@@ -15,6 +15,7 @@ from core.winspec_worker import WinSpecWorker
 from core.picoharp_worker import PicoHarpWorker 
 from core.piezo_worker import PiezoWorker
 from core.obis_worker import ObisWorker
+from core.polarizer_worker import PolarizerWorker
 
 class AppController(QObject):
     """
@@ -109,7 +110,7 @@ class AppController(QObject):
             lambda z: self.left_panel.lbl_piezo_live.setText(f"Z: {z:.3f} μm")
         )
         self.piezo_thread.start()
-                # 스레드가 안전하게 뜬 후, 내부 타이머 생성을 위해 initialize 호출
+        # 스레드가 안전하게 뜬 후, 내부 타이머 생성을 위해 initialize 호출
         QMetaObject.invokeMethod(self.piezo_worker, "initialize", Qt.QueuedConnection)
         # 6. OBIS Laser Worker 초기화 및 배선
         self.obis_thread = QThread()
@@ -126,6 +127,23 @@ class AppController(QObject):
         
         # 내부 상태 추적용 딕셔너리 (UI 토글 및 동기화 방어용)
         self._obis_state = {'connected': False, 'laser_532': False, 'laser_633': False}
+
+        # 편광 스캔 상태 추적용 변수들
+        self._is_pol_scanning = False
+        self._pol_scan_angles = []
+        self._current_pol_idx = 0
+        self._pol_save_dir = ""
+
+        # 7. Polarizer Worker 초기화 및 배선
+        self.polarizer_thread = QThread()
+        self.polarizer_worker = PolarizerWorker()
+        self.polarizer_worker.moveToThread(self.polarizer_thread)
+        self.polarizer_worker.sig_message.connect(self._on_worker_message)
+        
+        self.polarizer_thread.start()
+        QMetaObject.invokeMethod(self.polarizer_worker, "initialize", Qt.QueuedConnection)
+
+
 
     def _get_current_scan_params(self):
         """UI에서 스캔 파라미터를 추출하여 딕셔너리로 반환한다. 변환 실패 시 None 반환."""
@@ -164,9 +182,19 @@ class AppController(QObject):
         self.right_panel.btn_obis_532.clicked.connect(lambda: self.handle_obis_toggle('laser_532'))
         self.right_panel.btn_obis_633.clicked.connect(lambda: self.handle_obis_toggle('laser_633'))
         
+
         # 톱니바퀴 버튼 (팝업 호출)
         self.right_panel.btn_obis_532_cfg.clicked.connect(lambda: self.show_obis_config('laser_532'))
         self.right_panel.btn_obis_633_cfg.clicked.connect(lambda: self.show_obis_config('laser_633'))
+
+        # ==========================================
+        # Right Panel (Polarizer) -> Controller
+        # ==========================================
+        self.right_panel.btn_pol_connect.clicked.connect(self.handle_pol_connect) 
+        self.right_panel.btn_pol_home.clicked.connect(self.handle_pol_home)
+        self.right_panel.btn_pol_scan_start.clicked.connect(self._handle_pol_scan_click)
+        self.right_panel.btn_pol_manual_move.clicked.connect(self.handle_pol_manual_move)
+
 
         # ==========================================
         # Left Panel (Scan / APD / Move) -> Controller
@@ -210,7 +238,7 @@ class AppController(QObject):
         self.left_panel.btn_left.clicked.connect(lambda: self.handle_galvo_arrow('left'))
         self.left_panel.btn_right.clicked.connect(lambda: self.handle_galvo_arrow('right'))
 
-        # 🟢 메인 윈도우에서 낚아챈 전역 화살표 키 시그널 연결 추가
+        # 메인 윈도우에서 낚아챈 전역 화살표 키 시그널 연결 추가
         self.main_window.sig_arrow_pressed.connect(self.handle_galvo_arrow)
 
     def _on_ph_histogram_updated(self, time_bins, counts):
@@ -243,6 +271,12 @@ class AppController(QObject):
 
         # OBIS Laser 상태 폴링 업데이트
         self.obis_worker.sig_status_updated.connect(self._on_obis_status_updated)
+        self.obis_worker.sig_connection_changed.connect(self._on_obis_connection_changed)
+
+        # Polarizer 상태 수신
+        self.polarizer_worker.sig_initialized.connect(self._on_polarizer_initialized)
+        self.polarizer_worker.sig_homed.connect(self._on_polarizer_homed)
+        self.polarizer_worker.sig_moved.connect(self._on_polarizer_moved)
 
 
     # -------------------------------------------------------------------------
@@ -310,12 +344,18 @@ class AppController(QObject):
 
     def handle_piezo_move(self):
         """Piezo Z 수동 이동 명령"""
+        from PyQt5.QtCore import QMetaObject, Qt, Q_ARG
         try:
             z_um = float(self.left_panel.le_piezo_z.text())
-            # TODO: Piezo Worker 연동 예정
-            print(f"[Move] Piezo 이동: Z={z_um}μm")
+            
+            #  Piezo Worker의 move_to 슬롯으로 비동기 명령 하달
+            QMetaObject.invokeMethod(self.piezo_worker, "move_to", 
+                                     Qt.QueuedConnection, Q_ARG(float, z_um))
+            
         except ValueError:
-            pass
+            # 사용자에게 입력 오류를 명시적으로 인지시킬 것
+            self.left_panel.lbl_scan_info.setText("Error: Piezo Z 좌표는 숫자여야 함.")
+            self.left_panel.lbl_scan_info.setStyleSheet("color: red;")
 
     def handle_piezo_connect(self):
         port = self.left_panel.le_piezo_port.text().strip()
@@ -387,7 +427,7 @@ class AppController(QObject):
             QMetaObject.invokeMethod(self.obis_worker, "disconnect_server", Qt.QueuedConnection)
     
     def _on_obis_connection_changed(self, connected):
-        """워커에서 물리적 연결 상태를 확정지었을 때 UI를 동기화한다."""
+        """워커에서 물리적 연결 상태를 확정지었을 때 UI를 동기화"""
         self._obis_state['connected'] = connected
         self.right_panel.btn_obis_connect.setEnabled(True)
         
@@ -472,6 +512,165 @@ class AppController(QObject):
                 btn.setStyleSheet("")
 
 
+    # -------------------------------------------------------------------------
+    # Polarization Scan Automation (State Machine)
+    # -------------------------------------------------------------------------
+    def handle_pol_connect(self):
+        from PyQt5.QtCore import QMetaObject, Qt
+        if self.right_panel.btn_pol_connect.text() == "Connect":
+            self.right_panel.btn_pol_connect.setText("Connecting...")
+            self.right_panel.btn_pol_connect.setEnabled(False)
+            QMetaObject.invokeMethod(self.polarizer_worker, "connect_device", Qt.QueuedConnection)
+        else:
+            QMetaObject.invokeMethod(self.polarizer_worker, "disconnect_device", Qt.QueuedConnection)
+
+    def _on_polarizer_initialized(self, success):
+        """초기화 및 폴링 단절 시 UI 상태 갱신"""
+        if success:
+            self.right_panel.btn_pol_connect.setText("Disconnect")
+            self.right_panel.btn_pol_connect.setEnabled(True)
+            self.right_panel.btn_pol_home.setEnabled(True)
+            self.right_panel.btn_pol_scan_start.setEnabled(True)
+            self.right_panel.btn_pol_manual_move.setEnabled(True)
+        else:
+            self.right_panel.btn_pol_connect.setText("Connect")
+            self.right_panel.btn_pol_connect.setEnabled(True)
+            self.right_panel.btn_pol_home.setEnabled(False)
+            self.right_panel.btn_pol_scan_start.setEnabled(False)
+
+    def handle_pol_home(self):
+        """UI의 'Go to 0°' 버튼 처리. 
+        느린 하드웨어 Homing 대신 최단 거리 move_to(0) 명령으로 대체함."""
+        from PyQt5.QtCore import QMetaObject, Qt, Q_ARG
+        self.right_panel.btn_pol_home.setEnabled(False)
+        self.right_panel.btn_pol_scan_start.setEnabled(False)
+        self.right_panel.btn_pol_manual_move.setEnabled(False)
+        QMetaObject.invokeMethod(self.polarizer_worker, "move_to", Qt.QueuedConnection, Q_ARG(float, 0.0))
+
+    def handle_pol_manual_move(self):
+        """임의의 각도로 수동 이동"""
+        from PyQt5.QtCore import QMetaObject, Qt, Q_ARG
+        target_deg = self.right_panel.spin_pol_manual.value()
+        
+        # 이동 중 연타 방지
+        self.right_panel.btn_pol_home.setEnabled(False)
+        self.right_panel.btn_pol_scan_start.setEnabled(False)
+        self.right_panel.btn_pol_manual_move.setEnabled(False)
+        
+        self._on_worker_message("info", f"Polarizer moving to {target_deg}°...")
+        QMetaObject.invokeMethod(self.polarizer_worker, "move_to", Qt.QueuedConnection, Q_ARG(float, target_deg))
+
+    def _on_polarizer_homed(self):
+        """Homing 완료 시 UI 상태 해제"""
+        self._on_worker_message("info", "Polarizer Homing Complete.")
+        
+
+        self.right_panel.btn_pol_home.setEnabled(True)
+        self.right_panel.btn_pol_scan_start.setEnabled(True)
+
+
+    def _handle_pol_scan_click(self):
+        step_deg = self.right_panel.spin_pol_step.value()
+        end_deg = self.right_panel.spin_pol_end.value()
+        
+        self.right_panel.btn_pol_home.setEnabled(False)
+        self.right_panel.btn_pol_scan_start.setEnabled(False)
+        self.handle_pol_scan_start(start_deg=0, end_deg=end_deg, step_deg=step_deg)
+
+    def handle_pol_scan_start(self, start_deg=0, end_deg=360, step_deg=15):
+        """편광 자동화 스캔 시퀀스 진입점 (UI 버튼에 연결될 메서드)"""
+        if self._is_pol_scanning:
+            return
+            
+        import numpy as np
+        import os
+        from datetime import datetime
+        from PyQt5.QtCore import QMetaObject, Qt, Q_ARG
+
+        self._pol_scan_angles = list(np.arange(start_deg, end_deg, step_deg))
+        if not self._pol_scan_angles:
+            return
+
+        # 1. 폴더 자동 생성 플랜
+        base_dir = self.right_panel.le_ws_spe_dir.text().strip()
+        if not base_dir: base_dir = "./Data" # 빈칸 방어
+        
+        ts = datetime.now().strftime("%y%m%d_%H%M%S")
+        self._pol_save_dir = os.path.join(base_dir, f"PolScan_{ts}")
+        os.makedirs(self._pol_save_dir, exist_ok=True)
+
+        self._is_pol_scanning = True
+        self._current_pol_idx = 0
+
+        self.left_panel.lbl_scan_info.setText(f"Pol. Scan Start: {len(self._pol_scan_angles)} steps")
+        self.left_panel.lbl_scan_info.setStyleSheet("color: blue; font-weight: bold;")
+        
+        # 2. 첫 번째 각도로 이동 명령 하달 (이동 끝나면 _on_polarizer_moved가 자동으로 받음)
+        first_angle = self._pol_scan_angles[0]
+        QMetaObject.invokeMethod(self.polarizer_worker, "move_to", Qt.QueuedConnection, Q_ARG(float, first_angle))
+
+    def _on_polarizer_moved(self, angle):
+        """모터 이동 완료 시그널 수신 -> WinSpec 획득 릴레이 또는 단일 이동 완료 처리"""
+
+        from PyQt5.QtCore import QMetaObject, Qt, Q_ARG
+
+        if not getattr(self, '_is_pol_scanning', False):
+            self.right_panel.btn_pol_home.setEnabled(True)
+            self.right_panel.btn_pol_scan_start.setEnabled(True)
+            self.right_panel.btn_pol_manual_move.setEnabled(True)
+            return
+        
+        # Dry Run (모터 단독 구동 테스트) 모드인지 확인
+        is_dry_run = getattr(self.right_panel, 'chk_pol_dry_run', None) and self.right_panel.chk_pol_dry_run.isChecked()
+       
+        if is_dry_run:
+            self._on_worker_message("info", f"[Dry Run] Moved to {angle}°. Bypassing WinSpec.")
+            
+            # 물리적 진동 안정화를 모방하기 위해 약간의 대기 후 즉시 다음 각도로 체인 릴레이
+            self._current_pol_idx += 1
+            if self._current_pol_idx < len(self._pol_scan_angles):
+                next_angle = self._pol_scan_angles[self._current_pol_idx]
+                QMetaObject.invokeMethod(self.polarizer_worker, "move_to", 
+                                         Qt.QueuedConnection, Q_ARG(float, next_angle))
+            else:
+                self._is_pol_scanning = False
+                self.left_panel.lbl_scan_info.setText("Polarization Dry Run Completed.")
+                self.left_panel.lbl_scan_info.setStyleSheet("color: green; font-weight: bold;")
+                # [Dry Run 종료 시] 0도 자동 복귀 명령 하달
+                QMetaObject.invokeMethod(self.polarizer_worker, "move_to", Qt.QueuedConnection, Q_ARG(float, 0.0))
+            return
+
+        # =========================================================
+        # 현재 각도를 파일명 prefix로 강제 지정 (예: angle_000, angle_015)
+        prefix = f"angle_{int(angle):03d}"
+        
+        try:
+            exposure_val = float(self.right_panel.le_ws_exposure.text())
+            accum_val = int(self.right_panel.le_ws_accum.text())
+        except ValueError:
+            self._is_pol_scanning = False
+            self.right_panel.btn_pol_home.setEnabled(True)
+            self.right_panel.btn_pol_scan_start.setEnabled(True)
+            self._on_worker_message("error", "WinSpec 파라미터 오류! 스캔 강제 종료.")
+            return
+
+        # UI 입력창의 경로를 무시하고 새로 파놓은 폴더로 덮어씌움
+        params = {
+            "exposure": float(self.right_panel.le_ws_exposure.text()),
+            "accumulations": int(self.right_panel.le_ws_accum.text()),
+            "spe_dir": self._pol_save_dir,  
+            "csv_dir": self._pol_save_dir,
+            "prefix": prefix
+        }
+        
+
+
+        self.right_panel.btn_ws_acquire.setEnabled(False) # 유저의 수동 간섭 차단
+        
+        # WinSpec으로 측정 하달 (끝나면 _on_ws_acquired가 받음)
+        QMetaObject.invokeMethod(self.ws_worker, "acquire_spectrum", 
+                                 Qt.QueuedConnection, Q_ARG(dict, params))
+
 
     # -------------------------------------------------------------------------
     # Worker Callbacks (상태 갱신)
@@ -497,9 +696,64 @@ class AppController(QObject):
         if success:
             csv_path = result.get("csv_path")
             self.right_panel.lbl_ws_info.setText(f"Saved: {result.get('fname')}")
-            # TODO: csv_path를 읽어서 CenterPlotWidget의 ax_hist에 스펙트럼 플롯하도록 연결
+
+            try:
+                import numpy as np
+                import os
+                
+                # CSV 파싱 (보통 X: Wavelength, Y: Intensity의 2열 구조를 가짐)
+                # 데이터 포맷에 헤더 문자열이나 주석(#)이 섞여 있을 것을 대비해 방어적으로 로드
+                data = np.genfromtxt(csv_path, delimiter=',', comments='#', skip_header=1)
+                
+                if data.ndim == 2 and data.shape[1] >= 2:
+                    x_data = data[:, 0]
+                    y_data = data[:, 1]
+                    
+                    # 1. 뷰 모드 전환(Toggle) 시 화면을 복구하기 위해 메인 윈도우 캐시에 저장
+                    self.main_window._last_winspec_data = (x_data, y_data)
+                    
+                    # 2. 현재 사용자가 WinSpec 뷰 모드를 보고 있을 때만 즉시 화면 갱신
+                    if self.right_panel.radio_view_ws.isChecked():
+                        title = f"WinSpec Spectrum: {os.path.basename(csv_path)}"
+                        self.center_panel.update_spectrum_plot(x_data, y_data, title=title)
+                else:
+                    self._on_worker_message("error", "CSV 포맷 오류: 데이터가 2열 이상이 아님.")
+                    
+            except Exception as e:
+                self._on_worker_message("error", f"스펙트럼 렌더링 실패: {e}")
+
+            # 편광 스캔 핑퐁 체인(Chain) 로직
+            if getattr(self, '_is_pol_scanning', False):
+                self._current_pol_idx += 1
+                if self._current_pol_idx < len(self._pol_scan_angles):
+                    next_angle = self._pol_scan_angles[self._current_pol_idx]
+                    from PyQt5.QtCore import QMetaObject, Qt, Q_ARG
+                    QMetaObject.invokeMethod(self.polarizer_worker, "move_to", 
+                                             Qt.QueuedConnection, Q_ARG(float, next_angle))
+                else:
+                    self._is_pol_scanning = False
+                    self.left_panel.lbl_scan_info.setText("Polarization Scan Completed.")
+                    self.left_panel.lbl_scan_info.setStyleSheet("color: green; font-weight: bold;")
+
+                    # [스캔 종료 시] 강제 0도 복귀 명령
+                    # 0도 이동이 끝나면 _on_polarizer_moved 블록에서 알아서 UI 잠금을 싹 풀어줌.
+                    from PyQt5.QtCore import QMetaObject, Qt, Q_ARG
+                    QMetaObject.invokeMethod(self.polarizer_worker, "move_to", 
+                                             Qt.QueuedConnection, Q_ARG(float, 0.0))
+
+                self.right_panel.btn_pol_home.setEnabled(True)
+                self.right_panel.btn_pol_scan_start.setEnabled(True)
+
         else:
             self.right_panel.lbl_ws_info.setText(f"Error: {result.get('error')}")
+            # 에러 시 무한 루프 방지용 강제 종료
+            if getattr(self, '_is_pol_scanning', False):
+                self._is_pol_scanning = False
+                self.left_panel.lbl_scan_info.setText("Pol. Scan Aborted due to WinSpec error.")
+                self.left_panel.lbl_scan_info.setStyleSheet("color: red;")
+
+                self.right_panel.btn_pol_home.setEnabled(True)
+                self.right_panel.btn_pol_scan_start.setEnabled(True)
 
 
     # -------------------------------------------------------------------------
@@ -992,6 +1246,14 @@ class AppController(QObject):
                                      Qt.BlockingQueuedConnection)
         except Exception as e:
             print(f"[shutdown] obis disconnect error: {e}")
+
+        # 1-7. Polarizer disconnect
+        try:
+            QMetaObject.invokeMethod(self.polarizer_worker, "close_connection",
+                                     Qt.BlockingQueuedConnection)
+        except Exception as e:
+            print(f"[shutdown] polarizer disconnect error: {e}")
+                
         # ---------------------------------------------------------------
         # 2. 스레드 종료 (quit → wait, 타임아웃으로 데드락 방지)
         # ---------------------------------------------------------------
@@ -1016,4 +1278,4 @@ class AppController(QObject):
         _stop_thread(getattr(self, 'ph_thread', None), "ph_thread") 
         _stop_thread(getattr(self, 'piezo_thread', None), "piezo_thread")
         _stop_thread(getattr(self, 'obis_thread', None), "obis_thread")
-    
+        _stop_thread(getattr(self, 'polarizer_thread', None), "polarizer_thread")

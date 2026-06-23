@@ -90,6 +90,8 @@ class RightPanelWidget(QWidget):
         layout.addWidget(self.tabs, stretch=1)
         layout.addWidget(self._build_obis_group())
 
+        layout.addWidget(self._build_polarizer_group())
+
 
     # -------------------------------------------------------------------------
     # WinSpec Tab (Acton SP300i 제어)
@@ -457,3 +459,66 @@ class RightPanelWidget(QWidget):
 
         btn.setText(f"{'🟢' if on else '⚫'} {tag} {'ON' if on else 'OFF'}")
         lbl.setText(power_txt)
+
+
+    def _build_polarizer_group(self):
+        """KDC101 편광기 제어부"""
+        group = QGroupBox("Polarizer (KDC101)")
+        layout = QVBoxLayout()
+        layout.setSpacing(8)
+
+        # 1. 🟢 [추가] 연결 및 컨트롤 버튼
+        btn_layout = QHBoxLayout()
+        self.btn_pol_connect = QPushButton("Connect")
+        self.btn_pol_home = QPushButton("⮌ Go to 0°") # 이름 변경
+        self.btn_pol_scan_start = QPushButton("▶ Start Scan")
+        
+        self.btn_pol_home.setEnabled(False)
+        self.btn_pol_scan_start.setEnabled(False)
+        self.btn_pol_scan_start.setStyleSheet("background-color: #9C27B0; color: white;")
+        
+        btn_layout.addWidget(self.btn_pol_connect)
+        btn_layout.addWidget(self.btn_pol_home)
+        btn_layout.addWidget(self.btn_pol_scan_start)
+        layout.addLayout(btn_layout)
+
+        # 2. 파라미터 입력부
+        param_layout = QHBoxLayout()
+        self.spin_pol_step = QSpinBox()
+        self.spin_pol_step.setRange(1, 180)
+        self.spin_pol_step.setValue(15)  
+        
+        self.spin_pol_end = QSpinBox()
+        self.spin_pol_end.setRange(15, 360)
+        self.spin_pol_end.setValue(360)  
+        self.spin_pol_end.setSingleStep(15)
+
+        param_layout.addWidget(QLabel("Step [°]:"))
+        param_layout.addWidget(self.spin_pol_step)
+        param_layout.addWidget(QLabel("End [°]:"))
+        param_layout.addWidget(self.spin_pol_end)
+        layout.addLayout(param_layout)
+        
+        # 3. 임의 각도 수동 이동부
+        from PyQt5.QtWidgets import QDoubleSpinBox
+        manual_layout = QHBoxLayout()
+        self.spin_pol_manual = QDoubleSpinBox()
+        self.spin_pol_manual.setRange(0, 360)
+        self.spin_pol_manual.setDecimals(1)
+        self.spin_pol_manual.setValue(0.0)
+        
+        self.btn_pol_manual_move = QPushButton("Move to")
+        self.btn_pol_manual_move.setEnabled(False)
+        
+        manual_layout.addWidget(QLabel("Target [°]:"))
+        manual_layout.addWidget(self.spin_pol_manual)
+        manual_layout.addWidget(self.btn_pol_manual_move)
+        layout.addLayout(manual_layout)
+
+        # 4. Dry Run 체크박스
+        self.chk_pol_dry_run = QCheckBox("Dry Run (No WinSpec)")
+        self.chk_pol_dry_run.setStyleSheet("color: #E91E63; font-weight: bold;")
+        layout.addWidget(self.chk_pol_dry_run)
+
+        group.setLayout(layout)
+        return group
