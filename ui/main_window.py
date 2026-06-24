@@ -40,25 +40,35 @@ class DAQMainWindow(QMainWindow):
         self.center_panel = CenterPlotWidget()
         self.right_panel = RightPanelWidget()
 
-        # [레이아웃 고정 및 크래시 방지 로직]
-        # Matplotlib 캔버스가 0 이하로 찌그러지는 치명적 에러를 원천 차단
-        self.center_panel.setMinimumWidth(500)
-        
-        # 좌/우 제어 패널이 화면을 다 잡아먹지 못하게 최소/최대 폭을 엄격히 고정
-        self.left_panel.setMinimumWidth(450)
-        self.left_panel.setMaximumWidth(550)
-        self.right_panel.setMinimumWidth(300)
-        self.right_panel.setMaximumWidth(350)
+        fm = self.fontMetrics()
+        ch = fm.averageCharWidth()
+
+        # Constraints 
+        self.left_panel.setMinimumWidth(38 * ch)
+        self.left_panel.setMaximumWidth(46 * ch)
+        self.center_panel.setMinimumWidth(42 * ch)
+        self.right_panel.setMinimumWidth(26 * ch)
+        self.right_panel.setMaximumWidth(34 * ch)
+
+        # Window Resizing
+        screen = QApplication.primaryScreen().availableGeometry()
+        window_width = int(screen.width() * 0.86)
+        self.resize(window_width, int(screen.height() * 0.88))
 
         main_splitter.addWidget(self.left_panel)
         main_splitter.addWidget(self.center_panel)
         main_splitter.addWidget(self.right_panel)
 
-        main_splitter.setSizes([550, 1000, 100])
+        # FIX: 절대 픽셀값(550, 1000, 100)을 버리고 ch 단위 기반의 동적 사이즈 할당
+        left_init = int(40 * ch)  # Min과 Max 사이의 적절한 초기값
+        right_init = int(28 * ch) 
+        center_init = window_width - left_init - right_init
+
+        main_splitter.setSizes([left_init, center_init, right_init])
         main_splitter.setHandleWidth(4)
 
         self.setCentralWidget(main_splitter)
-
+        
     def _setup_statusbar(self):
         """하단 상태바 설정"""
         self.status_bar = QStatusBar()

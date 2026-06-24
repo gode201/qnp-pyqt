@@ -26,8 +26,9 @@ class CenterPlotWidget(QWidget):
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(5, 5, 5, 5)
 
-        # Figure 및 Canvas 생성
-        self.fig = Figure(figsize=(10, 9))
+        dpi = self.logicalDpiX()
+        self.fig = Figure(figsize=(10, 9), dpi=dpi)
+        
         self.canvas = FigureCanvas(self.fig)
         self.canvas.setFocusPolicy(Qt.StrongFocus)
         self.layout.addWidget(self.canvas)

@@ -1,8 +1,9 @@
 import sys
 import subprocess
 import importlib
+from PyQt5.QtCore import Qt 
 
-# ============================================================================git
+# ============================================================================
 # 필수 패키지 자동 설치
 # 패키지가 없으면 pip으로 설치 후 재시도한다.
 # ============================================================================
@@ -50,10 +51,33 @@ from ui.main_window import DAQMainWindow
 from core.app_controller import AppController
 
 if __name__ == "__main__":
+    #HiDPI 스케일링 활성화 (반드시 QApplication 생성 '전'에 호출)
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+
     app = QApplication(sys.argv)
     
     # OS 기본 테마보다 깔끔한 Fusion 스타일 적용
     app.setStyle("Fusion")
+    
+    # 전역 폰트 크기 및 스타일시트 적용
+    app.setStyleSheet("""
+        QGroupBox {
+            font-weight: 600;
+            border: 1px solid #B0B0B0;
+            border-radius: 4px;
+            margin-top: 8px;
+            padding-top: 8px;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin;
+            left: 8px; padding: 0 4px;
+        }
+        QPushButton { min-height: 24px; padding: 4px 10px; }
+        QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox { min-height: 22px; }
+        QLabel#info { color: #555; font-size: 9pt; }   /* 객체명 기반으로 한정 */
+    """)
+
     
     # 1. UI 객체 생성 (순수 레이아웃 상태)
     window = DAQMainWindow()

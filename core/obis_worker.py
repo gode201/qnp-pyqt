@@ -89,30 +89,31 @@ class ObisWorker(QObject):
         """타이머에 의해 2초마다 백그라운드에서 실행되며 전체 레이저 상태를 긁어온다."""
         if not self._is_connected or not self.client:
             return
-            
-        # ObisClient에 get_status_all()이 구현되어 있다고 가정함. 
-        # 만약 클라이언트에 없다면 'laser_532', 'laser_633'을 각각 get_status() 호출하게 수정해.
-        try:
-            res = self.client.get_status_all()
-        except AttributeError:
-            # get_status_all이 없을 경우를 대비한 Fallback 로직
-            res_532 = self.client.get_status('laser_532')
-            res_633 = self.client.get_status('laser_633')
-            
-            if res_532.get('status') == 'ok' and res_633.get('status') == 'ok':
-                res = {
-                    'status': 'ok',
-                    'data': {
-                        'laser_532': res_532.get('data', {}).get('laser_532', {}),
-                        'laser_633': res_633.get('data', {}).get('laser_633', {})
-                    }
-                }
-            else:
-                res = {'status': 'error', 'message': 'Individual polling failed'}
 
-        if res.get('status') == 'ok':
-            # 메인 스레드의 UI 업데이트를 위해 시그널 방출
-            self.sig_status_updated.emit(res.get('data', {}))
-        else:
-            # 폴링 중 에러가 나도 타이머(Timer)는 죽이지 않는다. 일시적인 네트워크 지연일 수 있음.
-            self.sig_message.emit("error", f"OBIS Polling Error: {res.get('message')}")
+        res = self.client.get_status_all()
+
+        if res.get('status') != 'ok':
+            code = res.get('code', '')
+            self._error_count += 1
+
+            # 에러 로그 스로틀링 (첫 에러거나, 5번 연속 실패할 때만 로그 출력)
+            should_log = (self._error_count == 1 or self._error_count % 5 == 0)
+
+            if code.startswith('NET_'):
+                if should_log:
+                    self.sig_message.emit("error", f"OBIS Network Error [{code}]: {res.get('message')}")
+                
+                # 네트워크 에러가 5회 연속 발생하면 무의미한 폴링을 막기 위해 연결 강제 해제
+                if self._error_count >= 5:
+                    self.sig_message.emit("error", "연속 통신 실패로 서버 연결을 강제 해제합니다.")
+                    self.disconnect_server()
+                return
+            
+            # 네트워크가 아닌 서버 로직 에러 (예: BAD_JSON, INVALID_TARGET 등)
+            if should_log:
+                self.sig_message.emit("error", f"OBIS Server Error [{code}]: {res.get('message')}")
+            return
+
+        # 정상 응답 시 에러 카운트 초기화 및 UI 업데이트
+        self._error_count = 0
+        self.sig_status_updated.emit(res.get('data', {}))

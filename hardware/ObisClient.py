@@ -28,28 +28,42 @@ class ObisClient:
 
     def _send(self, payload: dict) -> dict:
         data = json.dumps(payload).encode('utf-8')
-        frame = struct.pack('>I', len(data)) + data   # (b) length-prefix framing
+        frame = struct.pack('>I', len(data)) + data   
 
-        with self._lock:                              # (a) 한 번에 한 요청만
-            for attempt in (1, 2):                    # (c) 1회 자동 재연결
+        with self._lock:                              
+            for attempt in (1, 2):                    
                 try:
                     self._ensure_conn()
                     self._sock.sendall(frame)
 
-                    # 응답: 4바이트 길이 → 본문
                     hdr = self._recv_exact(4)
                     n = struct.unpack('>I', hdr)[0]
                     body = self._recv_exact(n)
+                    
                     try:
                         return json.loads(body.decode('utf-8'))
                     except ValueError as ve:
                         self.logger.error(f"JSON Parse Error: {ve}")
-                        return {'status': 'error', 'message': 'Invalid response format from server'}
+                        return {'status': 'error', 'code': 'BAD_JSON', 'message': 'Invalid response format'}
 
-                except (socket.timeout, ConnectionError, OSError) as e:
-                    self._close()
-                    if attempt == 2:
-                        return {'status': 'error', 'message': str(e)}
+                except socket.timeout:
+                    self.logger.error(f"ObisClient Timeout: {self.host}:{self.port}")
+                    return {'status': 'error', 'code': 'NET_TIMEOUT', 'message': 'Timeout'}
+                except ConnectionRefusedError:
+                    self.logger.error("ObisClient Connection Refused")
+                    return {'status': 'error', 'code': 'NET_REFUSED', 'message': 'Connection Refused'}
+                except (ConnectionError, OSError) as e:
+                    self.logger.error(f"ObisClient Network Error: {e}")
+                    return {'status': 'error', 'code': 'NET_ERROR',
+                            'message': f'{type(e).__name__}: {e}'}
+                except json.JSONDecodeError as e:
+                    self.logger.error(f"ObisClient JSON decode failed: {e}")
+                    return {'status': 'error', 'code': 'BAD_RESPONSE',
+                            'message': f'Malformed server response: {e}'}
+                except Exception as e:
+                    self.logger.error(f"ObisClient Unexpected: {e}")
+                    return {'status': 'error', 'code': 'CLIENT_ERROR', 'message': str(e)}
+
 
     def _recv_exact(self, n: int) -> bytes:
         while len(self._buf) < n:

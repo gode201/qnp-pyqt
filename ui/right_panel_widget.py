@@ -1,7 +1,7 @@
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFormLayout, 
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFormLayout, QScrollArea,
                              QTabWidget, QGroupBox, QLabel, QLineEdit, QPushButton, 
-                             QCheckBox, QSpinBox, QProgressBar, QToolButton, QFrame,
-                             QRadioButton, QButtonGroup) # QRadioButton, QButtonGroup 추가
+                             QCheckBox, QSpinBox, QProgressBar, QToolButton, QFrame, 
+                             QRadioButton, QButtonGroup) 
 from PyQt5.QtCore import pyqtSignal, Qt
 
 from core.Default import (
@@ -39,60 +39,64 @@ class RightPanelWidget(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        # 1. 최상단 아우터 레이아웃
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
 
-        # ---------------------------------------------------------------------
+        # 2. 스크롤 영역 생성
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setFocusPolicy(Qt.NoFocus)
+
+        scroll_content = QWidget()
+        layout = QVBoxLayout(scroll_content)
+        layout.setContentsMargins(5, 5, 5, 5)
+
         # Global Center Plot View Mode
-        # ---------------------------------------------------------------------
         view_group = QGroupBox("Center Plot View Mode")
         view_layout = QHBoxLayout()
-        
         self.radio_view_ph = QRadioButton("PicoHarp Histogram")
         self.radio_view_ws = QRadioButton("WinSpec Spectrum")
-        
-        self.radio_view_ph.setChecked(True) # 기본값
-
-        # 버튼 그룹으로 묶어서 상호 배타적(Exclusive)으로 동작하게 만듦
+        self.radio_view_ph.setChecked(True)
         self.view_btn_group = QButtonGroup(self)
         self.view_btn_group.addButton(self.radio_view_ph)
         self.view_btn_group.addButton(self.radio_view_ws)
-
         view_layout.addWidget(self.radio_view_ph)
         view_layout.addWidget(self.radio_view_ws)
         view_group.setLayout(view_layout)
-        
-        layout.addWidget(view_group) # 탭 위에 배치
-
-        # 상태 변경 이벤트 연결
         self.radio_view_ph.toggled.connect(
-            lambda checked: checked and self.sig_view_mode_changed.emit("picoharp")
-                                            )
+            lambda c: c and self.sig_view_mode_changed.emit("picoharp"))
         self.radio_view_ws.toggled.connect(
-            lambda checked: checked and self.sig_view_mode_changed.emit("winspec")
-        )
+            lambda c: c and self.sig_view_mode_changed.emit("winspec"))
+        layout.addWidget(view_group)
 
         
-        # ---------------------------------------------------------------------
-
         self.tabs = QTabWidget()
         self.winspec_tab = QWidget()
         self.picoharp_tab = QWidget()
         
         self._build_winspec_tab()
         self._build_picoharp_tab()
-        
-        
 
         self.tabs.addTab(self.winspec_tab, "WinSpec")
         self.tabs.addTab(self.picoharp_tab, "PicoHarp")
 
         layout.addWidget(self.tabs, stretch=1)
         layout.addWidget(self._build_obis_group())
-
         layout.addWidget(self._build_polarizer_group())
+        
+        # 3. 스크롤 영역에 콘텐츠 결합
+        scroll.setWidget(scroll_content)
+        outer_layout.addWidget(scroll)
 
-
+    def _tune_form(self, form: QFormLayout):
+        """QFormLayout의 정렬 및 여백을 일관되게 설정하는 헬퍼 함수"""
+        form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        form.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
+        form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        form.setHorizontalSpacing(8)
+        form.setVerticalSpacing(6)
     # -------------------------------------------------------------------------
     # WinSpec Tab (Acton SP300i 제어)
     # -------------------------------------------------------------------------
@@ -120,6 +124,7 @@ class RightPanelWidget(QWidget):
         # 2. Parameters Group
         param_group = QGroupBox("Parameters")
         form = QFormLayout()
+        self._tune_form(form)  # 헬퍼 함수 적용
         
         self.le_ws_ip = QLineEdit(WINSPEC_IP) 
         self.le_ws_prefix = QLineEdit("spectrum")
@@ -140,6 +145,7 @@ class RightPanelWidget(QWidget):
         # 3. Directories Group
         dir_group = QGroupBox("Directories")
         dir_form = QFormLayout()
+        self._tune_form(dir_form)  # 헬퍼 함수 적용
         
         self.le_ws_spe_dir = QLineEdit(WINSPEC_SPE_DIR)
         self.le_ws_csv_dir = QLineEdit(WINSPEC_CSV_DIR)
@@ -253,13 +259,28 @@ class RightPanelWidget(QWidget):
         scale_grid.addWidget(self.le_ph_ymax, 2, 4)
         scale_grid.addWidget(self.btn_ph_apply_scale, 2, 5)
 
+                
+        ch = self.fontMetrics().averageCharWidth()
+        for w in (self.le_ph_xmin, self.le_ph_xmax,
+                  self.le_ph_ymin, self.le_ph_ymax):
+            w.setMaximumWidth(8 * ch)
+            w.setAlignment(Qt.AlignRight)
+
+        # 라벨 컬럼은 좁게, 입력 컬럼은 stretch 안 주도록 명시
+        scale_grid.setColumnStretch(0, 0)  # checkbox
+        scale_grid.setColumnStretch(1, 0)  # "min" label
+        scale_grid.setColumnStretch(2, 1)  # min input
+        scale_grid.setColumnStretch(3, 0)  # "max" label
+        scale_grid.setColumnStretch(4, 1)  # max input
+        scale_grid.setColumnStretch(5, 0)  # Apply button
+        
         scale_group.setLayout(scale_grid)
         layout.addWidget(scale_group)
 
         # 4. Acquisition (QSpinBox 적용)
         acq_group = QGroupBox("Acquisition")
         acq_form = QFormLayout()
-
+        self._tune_form(acq_form)  # 헬퍼 함수 적용
        
         self.spin_ph_acqtime = QSpinBox()
         self.spin_ph_acqtime.setRange(1, 3600000)
@@ -289,6 +310,7 @@ class RightPanelWidget(QWidget):
         # 5. T2 Mode
         t2_group = QGroupBox("T2 Mode")
         t2_form = QFormLayout()
+        self._tune_form(t2_form)  # 헬퍼 함수 적용
         
         self.spin_ph_t2_acqtime = QSpinBox()
         self.spin_ph_t2_acqtime.setRange(1, 3600)
@@ -357,6 +379,7 @@ class RightPanelWidget(QWidget):
         layout = QVBoxLayout()
         layout.setSpacing(8)
 
+        
         # 1. 통합 서버 연결부 (TCP Socket Connect)
         conn_layout = QHBoxLayout()
         self.le_obis_ip = QLineEdit(OBIS_IP) 
@@ -377,10 +400,11 @@ class RightPanelWidget(QWidget):
         line.setFrameShadow(QFrame.Sunken)
         layout.addWidget(line)
 
+        ch = self.fontMetrics().averageCharWidth()
         # 2. 532nm 레이저 제어부 (오직 Emission ON/OFF만 담당)
         h_layout_532 = QHBoxLayout()
         self.btn_obis_532 = QPushButton("⚫ 532nm OFF")
-        self.btn_obis_532.setFixedWidth(100)
+        self.btn_obis_532.setMinimumWidth(14 * ch)   
         self.btn_obis_532.setEnabled(False) # 서버 연결 전까지는 조작 불가(Lock)
         self.btn_obis_532.setCheckable(False)  # 상태는 self._obis_on으로 관리
         self.btn_obis_532.clicked.connect(
@@ -402,13 +426,14 @@ class RightPanelWidget(QWidget):
         # 3. 633nm 레이저 제어부 (오직 Emission ON/OFF만 담당)
         h_layout_633 = QHBoxLayout()
         self.btn_obis_633 = QPushButton("⚫ 633nm OFF")
-        self.btn_obis_633.setFixedWidth(100)
+        self.btn_obis_633.setMinimumWidth(14 * ch)
         self.btn_obis_633.setEnabled(False)
-        self.btn_obis_532.setCheckable(False)  # 상태는 self._obis_on으로 관리
-        self.btn_obis_532.clicked.connect(
+        self.btn_obis_633.setCheckable(False)
+        self.btn_obis_633.clicked.connect(
             lambda: self.sig_obis_toggle.emit('laser_633',
                                             not self._obis_on['laser_633'])
         )
+
         self.lbl_obis_633_status = QLabel("--- mW")
         self.lbl_obis_633_status.setStyleSheet("font-family: Consolas; font-size: 11px;")
         
@@ -467,7 +492,7 @@ class RightPanelWidget(QWidget):
         layout = QVBoxLayout()
         layout.setSpacing(8)
 
-        # 1. 🟢 [추가] 연결 및 컨트롤 버튼
+        # 1. 연결 및 컨트롤 버튼
         btn_layout = QHBoxLayout()
         self.btn_pol_connect = QPushButton("Connect")
         self.btn_pol_home = QPushButton("⮌ Go to 0°") # 이름 변경

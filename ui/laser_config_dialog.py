@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QDoubleSpinBox, QPushButton
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QDoubleSpinBox, QPushButton, QLayout
 from PyQt5.QtCore import Qt
 
 class LaserConfigDialog(QDialog):
@@ -9,16 +9,18 @@ class LaserConfigDialog(QDialog):
     def __init__(self, target_name, current_power=0.0, parent=None):
         super().__init__(parent)
         self.setWindowTitle(f"{target_name} Setting")
-        self.setFixedSize(220, 100)
         
+        #fontMetrics 기반 최소 너비 할당
+        fm = self.fontMetrics()
+        self.setMinimumWidth(28 * fm.averageCharWidth())
         
         self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
-        
         self._setup_ui(current_power)
 
     def _setup_ui(self, current_power):
         layout = QVBoxLayout(self)
         
+        layout.setSizeConstraint(QLayout.SetFixedSize) # 레이아웃이 콘텐츠 크기에 맞게 다이얼로그 크기를 자동 조정하도록 강제
         # 파워 입력부
         h_layout = QHBoxLayout()
         h_layout.addWidget(QLabel("Power (mW):"))
