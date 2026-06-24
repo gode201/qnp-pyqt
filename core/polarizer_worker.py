@@ -111,7 +111,7 @@ class PolarizerWorker(QObject):
         """
         느린 하드웨어 원점 캘리브레이션. 
         단순히 0도로 이동하는 건 move_to(0)가 처리하므로, 
-        이 메서드는 장비의 영점이 물리적으로 완전히 틀어졌을 때만 수동으로 호출하는 용도다.
+        이 메서드는 장비의 영점이 물리적으로 완전히 틀어졌을 때만 수동으로 호출하는 용도.
         """
         if self._simulation_mode or not self._is_connected:
             self.sig_message.emit("info", "[Offline] Hardware Homing bypassed.")
