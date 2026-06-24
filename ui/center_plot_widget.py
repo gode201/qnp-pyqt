@@ -98,35 +98,104 @@ class CenterPlotWidget(QWidget):
             return
 
         cmap = plt.get_cmap(cmap_name)
-        cmap.set_bad(color='white')
-
-        # extent나 크기가 바뀌면 새로 그리고, 아니면 set_data로 최적화
-        need_rebuild = (
-            self._pl_img is None or 
-            self._pl_img_extent != extent or 
-            self._pl_img.get_array().shape != pl_data_grid.shape
-        )
-
-        if need_rebuild:
+        
+        if self._pl_img is None or self._pl_img_extent != extent:
             self.ax2.clear()
             self._pl_img = self.ax2.imshow(
-                pl_data_grid, extent=extent, origin='lower',
-                cmap=cmap, norm=norm, vmin=vmin, vmax=vmax, aspect='auto'
+                pl_data_grid, cmap=cmap, origin='lower', extent=extent,
+                norm=norm, vmin=vmin, vmax=vmax, interpolation='nearest'
             )
             self._pl_img_extent = extent
-            self.ax2.add_patch(self.galvo_indicator)
-            self.ax2.set_title("PL Scanning Image")
+            self.cbar.update_normal(self._pl_img)
             self.ax2.set_xlabel("X (μm)")
             self.ax2.set_ylabel("Y (μm)")
-            self.cbar.update_normal(self._pl_img)
+            self.ax2.set_title("PL Scanning Image")
+            self.ax2.add_patch(self.galvo_indicator)
+            self.ax2.add_patch(self.galvo_target_indicator)
         else:
             self._pl_img.set_data(pl_data_grid)
-            if norm:
-                self._pl_img.set_norm(norm)
-            else:
-                self._pl_img.set_clim(vmin, vmax)
+            if norm is None:
+                if vmin is not None and vmax is not None:
+                    self._pl_img.set_clim(vmin, vmax)
+                else:
+                    self._pl_img.autoscale()
             self._pl_img.set_cmap(cmap)
+        
+        self.canvas.draw_idle()
 
+    # -------------------------------------------------------------------------
+    # Z Scan / Auto Focus 플롯
+    # -------------------------------------------------------------------------
+    def update_zscan_plot(self, data):
+        """
+        1D Z-Scan 그래프 렌더링.
+        data: list of (z_um, counts_per_sec)
+        """
+        if not data:
+            return
+            
+        z_arr = [d[0] for d in data]
+        cps_arr = [d[1] for d in data]
+        
+        self.ax1.clear()
+        self.ax1.plot(z_arr, cps_arr, "o-", markersize=3, color="steelblue")
+        self.ax1.set_title("1D Z Scan", fontsize=9)
+        self.ax1.set_xlabel("Z (μm)", fontsize=8)
+        self.ax1.set_ylabel("Count / s", fontsize=8)
+        self.ax1.tick_params(labelsize=7)
+        self.canvas.draw_idle()
+
+    def update_autofocus_plot(self, result):
+        """
+        Auto-Focus 2-Pass 스캔 및 타겟 Z 위치 결과 렌더링.
+        result: z_autofocus.run_autofocus()가 반환한 딕셔너리
+        """
+        if not result:
+            return
+            
+        self.ax1.clear()
+        
+        mode = result.get("focus_mode", "plateau_center")
+        
+        # Fine 데이터만 우선 표출 (혹은 Coarse + Fine)
+        # 겹쳐 그릴 경우 범위 차이가 너무 클 수 있어 주로 Fine Scan 영역 확대 표시
+        fz = [d[0] for d in result.get("fine_data", [])]
+        fc = [d[1] for d in result.get("fine_data", [])]
+        self.ax1.plot(fz, fc, "o-", markersize=3, color="steelblue", label="PL counts")
+        
+        center_z = result.get("center_z")
+        max_z = result.get("max_z")
+        
+        if mode == "plateau_center":
+            p_start = result.get("plateau_start")
+            p_end = result.get("plateau_end")
+            if center_z is not None:
+                self.ax1.axvline(center_z, color="g", linestyle="-", linewidth=2, label="Center")
+            if max_z is not None:
+                self.ax1.axvline(max_z, color="r", linestyle="--", alpha=0.5, label="Max")
+            if p_start is not None and p_end is not None:
+                self.ax1.axvspan(p_start, p_end, alpha=0.15, color="green", label="Plateau")
+        
+        elif mode == "max_slope":
+            slope_z = result.get("slope_z")
+            if slope_z is not None:
+                self.ax1.axvline(slope_z, color="darkorange", linestyle="-", linewidth=2, label="Max Slope")
+            if max_z is not None:
+                self.ax1.axvline(max_z, color="r", linestyle="--", alpha=0.5, label="Max")
+                
+        elif mode == "rising_edge":
+            edge_z = result.get("edge_z")
+            if edge_z is not None:
+                self.ax1.axvline(edge_z, color="purple", linestyle="-", linewidth=2, label="Rising Edge")
+            if max_z is not None:
+                self.ax1.axvline(max_z, color="r", linestyle="--", alpha=0.5, label="Max")
+                
+        self.ax1.set_title(f"Auto-Focus: {mode}", fontsize=9)
+        self.ax1.set_xlabel("Z (μm)", fontsize=8)
+        self.ax1.set_ylabel("Count / s", fontsize=8)
+        self.ax1.tick_params(labelsize=7)
+        self.ax1.legend(fontsize=6, loc="best")
+        
         self.canvas.draw_idle()
     
     def update_spectrum_plot(self, x_data, y_data, title="WinSpec Spectrum"):

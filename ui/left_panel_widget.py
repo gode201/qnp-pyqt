@@ -36,7 +36,7 @@ class LeftPanelWidget(QWidget):
         # 스크롤 영역 생성
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         
         scroll_area.setFocusPolicy(Qt.NoFocus) 
         
@@ -85,9 +85,11 @@ class LeftPanelWidget(QWidget):
 
     def _build_scan_tab(self):
         layout = QVBoxLayout(self.scan_tab)
+        layout.setSpacing(6)
         
         # Range & Steps (QGridLayout 활용)
         grid = QGridLayout()
+        grid.setHorizontalSpacing(4)
         grid.addWidget(QLabel("X Range:"), 0, 0)
         self.le_x_min = QLineEdit(str(X_MIN))
         self.le_x_max = QLineEdit(str(X_MAX))
@@ -115,6 +117,12 @@ class LeftPanelWidget(QWidget):
         self.lbl_dy = QLabel(f"dy: {(Y_MAX - Y_MIN) / Y_STEPS:.3f}")
         grid.addWidget(self.le_y_steps, 3, 1, 1, 2)
         grid.addWidget(self.lbl_dy, 3, 3)
+
+        # 라벨 열은 고정, 입력 열은 균등 확장
+        grid.setColumnStretch(0, 0)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(2, 1)
+        grid.setColumnStretch(3, 0)
 
         layout.addLayout(grid)
 
@@ -163,6 +171,7 @@ class LeftPanelWidget(QWidget):
         # Drift Correction Group
         drift_group = QGroupBox("Drift Correction")
         drift_layout = QGridLayout()
+        drift_layout.setHorizontalSpacing(4)
         self.chk_drift_enable = QCheckBox("Enable")
         self.le_drift_interval = QLineEdit(str(DRIFT_CORRECTION_INTERVAL))
         self.le_drift_ref_x = QLineEdit(str(GALVO_X_DEFAULT))
@@ -171,12 +180,18 @@ class LeftPanelWidget(QWidget):
         
         drift_layout.addWidget(self.chk_drift_enable, 0, 0)
         drift_layout.addWidget(QLabel("Every:"), 0, 1)
-        drift_layout.addWidget(self.le_drift_interval, 0, 2)
+        drift_layout.addWidget(self.le_drift_interval, 0, 2, 1, 2)
+
         drift_layout.addWidget(QLabel("Ref X:"), 1, 0)
         drift_layout.addWidget(self.le_drift_ref_x, 1, 1)
         drift_layout.addWidget(QLabel("Y:"), 1, 2)
         drift_layout.addWidget(self.le_drift_ref_y, 1, 3)
-        drift_layout.addWidget(self.btn_drift_set, 1, 4)
+
+        drift_layout.addWidget(self.btn_drift_set, 2, 0, 1, 4)
+
+        drift_layout.setColumnStretch(1, 1)
+        drift_layout.setColumnStretch(3, 1)
+
         drift_group.setLayout(drift_layout)
         layout.addWidget(drift_group)
         layout.addStretch()
@@ -223,18 +238,24 @@ class LeftPanelWidget(QWidget):
 
     def _build_galvo_group(self):
         group = QGroupBox("Galvo Move")
-        layout = QGridLayout()
+        layout = QVBoxLayout()
 
         self.le_galvo_x = QLineEdit(str(GALVO_X_DEFAULT))
         self.le_galvo_y = QLineEdit(str(GALVO_Y_DEFAULT))
         self.btn_galvo_move = QPushButton("Move")
         self.le_galvo_step = QLineEdit(str(GALVO_X_STEP))
 
-        layout.addWidget(QLabel("X (μm):"), 0, 0)
-        layout.addWidget(self.le_galvo_x, 0, 1)
-        layout.addWidget(QLabel("Y (μm):"), 0, 2)
-        layout.addWidget(self.le_galvo_y, 0, 3)
-        layout.addWidget(self.btn_galvo_move, 0, 4)
+        # 행 1: X, Y 좌표 + Move 버튼
+        row1 = QHBoxLayout()
+        row1.addWidget(QLabel("X:"))
+        row1.addWidget(self.le_galvo_x, 1)
+        row1.addWidget(QLabel("Y:"))
+        row1.addWidget(self.le_galvo_y, 1)
+        row1.addWidget(self.btn_galvo_move)
+        layout.addLayout(row1)
+
+        # 행 2: 방향키 패드 + Step/Set Zero
+        h_mid = QHBoxLayout()
 
         # 화살표 패드
         pad_layout = QGridLayout()
@@ -246,15 +267,20 @@ class LeftPanelWidget(QWidget):
         pad_layout.addWidget(self.btn_left, 1, 0)
         pad_layout.addWidget(self.btn_right, 1, 2)
         pad_layout.addWidget(self.btn_down, 2, 1)
-        # 패드가 세로로 2칸(Row Span 2)을 차지하도록 조정
-        layout.addLayout(pad_layout, 1, 0, 2, 3) 
+        h_mid.addLayout(pad_layout)
 
-        # 🟢 [수정] 누락되었던 스텝 입력창을 1행 3열 위치에 삽입
-        layout.addWidget(QLabel("Step:"), 1, 3)
-        layout.addWidget(self.le_galvo_step, 1, 4)
-
+        # Step 입력 + Set Zero
+        side_layout = QVBoxLayout()
+        step_row = QHBoxLayout()
+        step_row.addWidget(QLabel("Step:"))
+        step_row.addWidget(self.le_galvo_step, 1)
+        side_layout.addLayout(step_row)
         self.btn_set_zero = QPushButton("Set Zero")
-        layout.addWidget(self.btn_set_zero, 2, 3, 1, 2)
+        side_layout.addWidget(self.btn_set_zero)
+        side_layout.addStretch()
+        h_mid.addLayout(side_layout)
+
+        layout.addLayout(h_mid)
 
         group.setLayout(layout)
         self.scroll_layout.addWidget(group)
@@ -262,6 +288,7 @@ class LeftPanelWidget(QWidget):
     def _build_piezo_group(self):
         group = QGroupBox("Piezo Z")
         layout = QGridLayout()
+        layout.setHorizontalSpacing(4)
         
         self.le_piezo_port = QLineEdit(str(PIEZO_COM_PORT))
         self.btn_piezo_connect = QPushButton("Connect")
@@ -284,6 +311,11 @@ class LeftPanelWidget(QWidget):
         layout.addWidget(QLabel("Step:"), 1, 2)
         layout.addWidget(self.le_piezo_step, 1, 3)
 
+        # 라벨 열은 고정, 입력 열은 확장
+        layout.setColumnStretch(0, 0)
+        layout.setColumnStretch(1, 1)
+        layout.setColumnStretch(2, 0)
+        layout.setColumnStretch(3, 1)
 
         btn_layout = QHBoxLayout()
         self.btn_z_up = QPushButton("▲")
@@ -348,6 +380,10 @@ class LeftPanelWidget(QWidget):
         layout.addRow("Z Min:", self.le_zscan_min)
         layout.addRow("Z Max:", self.le_zscan_max)
         layout.addRow("Steps:", self.le_zscan_steps)
+        
+        self.btn_zscan_start = QPushButton("Z Scan Start")
+        self.btn_zscan_start.setStyleSheet("background-color: #2196F3; color: white;")
+        layout.addRow(self.btn_zscan_start)
 
     # -------------------------------------------------------------------------
     # Internal Signals & Slots (UI 자체 로직 처리)

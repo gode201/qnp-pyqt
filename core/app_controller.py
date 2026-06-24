@@ -109,6 +109,11 @@ class AppController(QObject):
         self.piezo_worker.sig_position_updated.connect(
             lambda z: self.left_panel.lbl_piezo_live.setText(f"Z: {z:.3f} μm")
         )
+        
+        # Z-Scan 및 Auto-Focus 결과 수신 -> Center Plot (상단 좌측 ax1) 갱신
+        self.piezo_worker.sig_zscan_finished.connect(self.center_panel.update_zscan_plot)
+        self.piezo_worker.sig_autofocus_finished.connect(self.center_panel.update_autofocus_plot)
+        
         self.piezo_thread.start()
         # 스레드가 안전하게 뜬 후, 내부 타이머 생성을 위해 initialize 호출
         QMetaObject.invokeMethod(self.piezo_worker, "initialize", Qt.QueuedConnection)
@@ -207,6 +212,10 @@ class AppController(QObject):
         # -- Scan / APD  --
         self.left_panel.btn_scan_start.clicked.connect(self.handle_scan_toggle)
         self.left_panel.btn_apd_count.clicked.connect(self.handle_apd_count_toggle)
+        
+        # -- Z Scan / Auto-Focus --
+        self.left_panel.btn_zscan_start.clicked.connect(self.handle_zscan_start)
+        self.left_panel.btn_af_start.clicked.connect(self.handle_autofocus_start)
 
         # ── Move Control (Galvo / Piezo) 연결 ──
         self.left_panel.btn_galvo_move.clicked.connect(self.handle_galvo_move)
@@ -338,6 +347,69 @@ class AppController(QObject):
         QMetaObject.invokeMethod(self.scan_worker, "start_scan", 
                                  Qt.QueuedConnection, Q_ARG(dict, params))
   
+    # -------------------------------------------------------------------------
+    # Z Scan & Auto Focus Handlers
+    # -------------------------------------------------------------------------
+    def handle_zscan_start(self):
+        """1D Z Scan을 시작한다."""
+        if getattr(self.scan_worker, '_is_scanning', False):
+            self._on_worker_message("error", "PL 스캔 중에는 Z 스캔을 할 수 없습니다.")
+            return
+
+        # 하드웨어 리소스 충돌 방지: APD 폴링 중단 (ctr0 확보)
+        if getattr(self.apd_worker, '_is_running', False):
+            QMetaObject.invokeMethod(self.apd_worker, "stop_counting", Qt.QueuedConnection)
+
+        try:
+            params = {
+                'z_min': float(self.left_panel.le_zscan_min.text()),
+                'z_max': float(self.left_panel.le_zscan_max.text()),
+                'steps': int(self.left_panel.le_zscan_steps.text()),
+                'dwell': 0.1 # Default
+            }
+            # UI Dwell Time (exposure_time) 가져오기 시도
+            try:
+                params['dwell'] = float(self.left_panel.le_dwell.text())
+            except: pass
+            
+            QMetaObject.invokeMethod(self.piezo_worker, "start_zscan", 
+                                     Qt.QueuedConnection, Q_ARG(dict, params))
+        except ValueError:
+            self._on_worker_message("error", "Z Scan 파라미터에 오류가 있습니다 (숫자 아님).")
+
+    def handle_autofocus_start(self):
+        """2-Pass Auto-Focus를 시작한다."""
+        if getattr(self.scan_worker, '_is_scanning', False):
+            self._on_worker_message("error", "PL 스캔 중에는 Auto-Focus를 할 수 없습니다.")
+            return
+
+        # 하드웨어 리소스 충돌 방지: APD 폴링 중단 (ctr0 확보)
+        if getattr(self.apd_worker, '_is_running', False):
+            QMetaObject.invokeMethod(self.apd_worker, "stop_counting", Qt.QueuedConnection)
+            
+        try:
+            # 좌측 패널의 AF 설정값 파싱
+            z_min = float(self.left_panel.le_af_zmin.text())
+            z_max = float(self.left_panel.le_af_zmax.text())
+            mode_str = self.left_panel.cb_af_mode.currentText()
+            
+            params = {
+                'coarse_range': (z_min, z_max),
+                'coarse_step': 0.1,
+                'fine_step': 0.02,
+                'fine_range': 1.0,
+                'focus_mode': mode_str,
+                'dwell': 0.15 # Default
+            }
+            try:
+                params['dwell'] = float(self.left_panel.le_dwell.text())
+            except: pass
+            
+            QMetaObject.invokeMethod(self.piezo_worker, "start_autofocus", 
+                                     Qt.QueuedConnection, Q_ARG(dict, params))
+        except ValueError:
+            self._on_worker_message("error", "Auto-Focus 파라미터 오류 (숫자가 아닙니다).")
+            
     # -------------------------------------------------------------------------
     # Manual Move Handlers
     # -------------------------------------------------------------------------

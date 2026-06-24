@@ -11,7 +11,7 @@ _REQUIRED = {
     "numpy":      "numpy",
     "matplotlib": "matplotlib",
     "nidaqmx":    "nidaqmx",
-    "PyQt5":      "PyQt5",  # PyQt5 추가
+    "PyQt5":      "PyQt5", 
 }
 
 def _ensure_packages():
@@ -67,15 +67,18 @@ if __name__ == "__main__":
             border: 1px solid #B0B0B0;
             border-radius: 4px;
             margin-top: 8px;
-            padding-top: 8px;
+            padding-top: 10px;
+            padding-left: 4px;
+            padding-right: 4px;
         }
         QGroupBox::title {
             subcontrol-origin: margin;
             left: 8px; padding: 0 4px;
         }
-        QPushButton { min-height: 24px; padding: 4px 10px; }
+        QPushButton { min-height: 24px; padding: 4px 8px; }
         QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox { min-height: 22px; }
-        QLabel#info { color: #555; font-size: 9pt; }   /* 객체명 기반으로 한정 */
+        QLineEdit { min-width: 36px; }
+        QLabel#info { color: #555; font-size: 9pt; }
     """)
 
     

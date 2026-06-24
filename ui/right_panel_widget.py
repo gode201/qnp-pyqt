@@ -46,7 +46,7 @@ class RightPanelWidget(QWidget):
         # 2. 스크롤 영역 생성
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll.setFocusPolicy(Qt.NoFocus)
 
         scroll_content = QWidget()
@@ -55,7 +55,8 @@ class RightPanelWidget(QWidget):
 
         # Global Center Plot View Mode
         view_group = QGroupBox("Center Plot View Mode")
-        view_layout = QHBoxLayout()
+        view_layout = QVBoxLayout()
+        view_layout.setSpacing(4)
         self.radio_view_ph = QRadioButton("PicoHarp Histogram")
         self.radio_view_ws = QRadioButton("WinSpec Spectrum")
         self.radio_view_ph.setChecked(True)
@@ -106,18 +107,25 @@ class RightPanelWidget(QWidget):
 
         # 1. Connection Group
         conn_group = QGroupBox("Connection")
-        conn_layout = QHBoxLayout()
+        conn_layout = QVBoxLayout()
+        
+        status_row = QHBoxLayout()
         self.lbl_ws_status_dot = QLabel("●")
         self.lbl_ws_status_dot.setStyleSheet("color: red; font-size: 16px;")
         self.lbl_ws_status = QLabel("Disconnected")
+        status_row.addWidget(self.lbl_ws_status_dot)
+        status_row.addWidget(self.lbl_ws_status)
+        status_row.addStretch()
+        conn_layout.addLayout(status_row)
+
+        btn_row = QHBoxLayout()
         self.btn_ws_connect = QPushButton("Connect")
         self.btn_ws_disconnect = QPushButton("Disconnect")
         self.btn_ws_disconnect.setEnabled(False)
+        btn_row.addWidget(self.btn_ws_connect)
+        btn_row.addWidget(self.btn_ws_disconnect)
+        conn_layout.addLayout(btn_row)
         
-        conn_layout.addWidget(self.lbl_ws_status_dot)
-        conn_layout.addWidget(self.lbl_ws_status)
-        conn_layout.addWidget(self.btn_ws_connect)
-        conn_layout.addWidget(self.btn_ws_disconnect)
         conn_group.setLayout(conn_layout)
         layout.addWidget(conn_group)
 
@@ -189,92 +197,103 @@ class RightPanelWidget(QWidget):
 
         # 2. Device & Signals
         dev_group = QGroupBox("Device & Signals")
-        dev_layout = QGridLayout()
+        dev_layout = QVBoxLayout()
+        dev_layout.setSpacing(4)
         
         self.lbl_ph_status_dot = QLabel("●")
         self.lbl_ph_status_dot.setStyleSheet("color: red; font-size: 16px;")
         self.lbl_ph_status = QLabel("Disconnected")
+
+        status_row = QHBoxLayout()
+        status_row.addWidget(self.lbl_ph_status_dot)
+        status_row.addWidget(self.lbl_ph_status)
+        status_row.addStretch()
+        dev_layout.addLayout(status_row)
+
         self.btn_ph_connect = QPushButton("Connect")
         self.btn_ph_disconnect = QPushButton("Disconnect")
         self.btn_ph_disconnect.setEnabled(False)
         self.btn_ph_ctrl_panel = QPushButton("Control Panel")
 
-        dev_layout.addWidget(self.lbl_ph_status_dot, 0, 0)
-        dev_layout.addWidget(self.lbl_ph_status, 0, 1)
-        dev_layout.addWidget(self.btn_ph_connect, 0, 2)
-        dev_layout.addWidget(self.btn_ph_disconnect, 0, 3)
-        dev_layout.addWidget(self.btn_ph_ctrl_panel, 0, 4)
+        btn_row = QHBoxLayout()
+        btn_row.addWidget(self.btn_ph_connect)
+        btn_row.addWidget(self.btn_ph_disconnect)
+        btn_row.addWidget(self.btn_ph_ctrl_panel)
+        dev_layout.addLayout(btn_row)
 
         self.lbl_ph_res = QLabel("Res: -- ps")
         self.lbl_ph_res.setStyleSheet("font-family: Courier;")
-        dev_layout.addWidget(self.lbl_ph_res, 1, 0, 1, 5)
+        dev_layout.addWidget(self.lbl_ph_res)
 
         # Signals (QProgressBar 활용)
-        dev_layout.addWidget(QLabel("Sync:"), 2, 0)
+        sig_grid = QGridLayout()
+        sig_grid.setHorizontalSpacing(4)
+        sig_grid.addWidget(QLabel("Sync:"), 0, 0)
         self.prog_ph_sync = QProgressBar()
         self.prog_ph_sync.setTextVisible(False)
         self.prog_ph_sync.setFixedHeight(10)
         self.lbl_ph_sync_rate = QLabel("CH0: -- cps")
-        dev_layout.addWidget(self.prog_ph_sync, 2, 1, 1, 3)
-        dev_layout.addWidget(self.lbl_ph_sync_rate, 2, 4)
+        sig_grid.addWidget(self.prog_ph_sync, 0, 1)
+        sig_grid.addWidget(self.lbl_ph_sync_rate, 0, 2)
 
-        dev_layout.addWidget(QLabel("Chan:"), 3, 0)
+        sig_grid.addWidget(QLabel("Chan:"), 1, 0)
         self.prog_ph_chan = QProgressBar()
         self.prog_ph_chan.setTextVisible(False)
         self.prog_ph_chan.setFixedHeight(10)
         self.lbl_ph_chan_rate = QLabel("CH1: -- cps")
-        dev_layout.addWidget(self.prog_ph_chan, 3, 1, 1, 3)
-        dev_layout.addWidget(self.lbl_ph_chan_rate, 3, 4)
+        sig_grid.addWidget(self.prog_ph_chan, 1, 1)
+        sig_grid.addWidget(self.lbl_ph_chan_rate, 1, 2)
+
+        sig_grid.setColumnStretch(0, 0)
+        sig_grid.setColumnStretch(1, 1)
+        sig_grid.setColumnStretch(2, 0)
+        dev_layout.addLayout(sig_grid)
 
         dev_group.setLayout(dev_layout)
         layout.addWidget(dev_group)
 
         # 3. Histogram Scale
         scale_group = QGroupBox("Histogram Scale")
-        scale_grid = QGridLayout()
+        scale_layout = QVBoxLayout()
+        scale_layout.setSpacing(4)
         
         self.chk_ph_log = QCheckBox("Log Scale")
         self.chk_ph_log.setChecked(True)
-        scale_grid.addWidget(self.chk_ph_log, 0, 0, 1, 2)
+        scale_layout.addWidget(self.chk_ph_log)
 
+        # X range row
+        x_row = QHBoxLayout()
         self.chk_ph_xauto = QCheckBox("X Auto")
         self.chk_ph_xauto.setChecked(True)
         self.le_ph_xmin = QLineEdit("0")
         self.le_ph_xmax = QLineEdit("100")
-        scale_grid.addWidget(self.chk_ph_xauto, 1, 0)
-        scale_grid.addWidget(QLabel("min"), 1, 1)
-        scale_grid.addWidget(self.le_ph_xmin, 1, 2)
-        scale_grid.addWidget(QLabel("max"), 1, 3)
-        scale_grid.addWidget(self.le_ph_xmax, 1, 4)
+        self.le_ph_xmin.setAlignment(Qt.AlignRight)
+        self.le_ph_xmax.setAlignment(Qt.AlignRight)
+        x_row.addWidget(self.chk_ph_xauto)
+        x_row.addWidget(QLabel("min"))
+        x_row.addWidget(self.le_ph_xmin, 1)
+        x_row.addWidget(QLabel("max"))
+        x_row.addWidget(self.le_ph_xmax, 1)
+        scale_layout.addLayout(x_row)
 
+        # Y range row
+        y_row = QHBoxLayout()
         self.chk_ph_yauto = QCheckBox("Y Auto")
         self.chk_ph_yauto.setChecked(True)
         self.le_ph_ymin = QLineEdit("1")
         self.le_ph_ymax = QLineEdit("100000")
+        self.le_ph_ymin.setAlignment(Qt.AlignRight)
+        self.le_ph_ymax.setAlignment(Qt.AlignRight)
         self.btn_ph_apply_scale = QPushButton("Apply")
-        scale_grid.addWidget(self.chk_ph_yauto, 2, 0)
-        scale_grid.addWidget(QLabel("min"), 2, 1)
-        scale_grid.addWidget(self.le_ph_ymin, 2, 2)
-        scale_grid.addWidget(QLabel("max"), 2, 3)
-        scale_grid.addWidget(self.le_ph_ymax, 2, 4)
-        scale_grid.addWidget(self.btn_ph_apply_scale, 2, 5)
+        y_row.addWidget(self.chk_ph_yauto)
+        y_row.addWidget(QLabel("min"))
+        y_row.addWidget(self.le_ph_ymin, 1)
+        y_row.addWidget(QLabel("max"))
+        y_row.addWidget(self.le_ph_ymax, 1)
+        y_row.addWidget(self.btn_ph_apply_scale)
+        scale_layout.addLayout(y_row)
 
-                
-        ch = self.fontMetrics().averageCharWidth()
-        for w in (self.le_ph_xmin, self.le_ph_xmax,
-                  self.le_ph_ymin, self.le_ph_ymax):
-            w.setMaximumWidth(8 * ch)
-            w.setAlignment(Qt.AlignRight)
-
-        # 라벨 컬럼은 좁게, 입력 컬럼은 stretch 안 주도록 명시
-        scale_grid.setColumnStretch(0, 0)  # checkbox
-        scale_grid.setColumnStretch(1, 0)  # "min" label
-        scale_grid.setColumnStretch(2, 1)  # min input
-        scale_grid.setColumnStretch(3, 0)  # "max" label
-        scale_grid.setColumnStretch(4, 1)  # max input
-        scale_grid.setColumnStretch(5, 0)  # Apply button
-        
-        scale_group.setLayout(scale_grid)
+        scale_group.setLayout(scale_layout)
         layout.addWidget(scale_group)
 
         # 4. Acquisition (QSpinBox 적용)
@@ -400,11 +419,10 @@ class RightPanelWidget(QWidget):
         line.setFrameShadow(QFrame.Sunken)
         layout.addWidget(line)
 
-        ch = self.fontMetrics().averageCharWidth()
         # 2. 532nm 레이저 제어부 (오직 Emission ON/OFF만 담당)
         h_layout_532 = QHBoxLayout()
         self.btn_obis_532 = QPushButton("⚫ 532nm OFF")
-        self.btn_obis_532.setMinimumWidth(14 * ch)   
+        self.btn_obis_532.setMinimumWidth(120)
         self.btn_obis_532.setEnabled(False) # 서버 연결 전까지는 조작 불가(Lock)
         self.btn_obis_532.setCheckable(False)  # 상태는 self._obis_on으로 관리
         self.btn_obis_532.clicked.connect(
@@ -426,7 +444,7 @@ class RightPanelWidget(QWidget):
         # 3. 633nm 레이저 제어부 (오직 Emission ON/OFF만 담당)
         h_layout_633 = QHBoxLayout()
         self.btn_obis_633 = QPushButton("⚫ 633nm OFF")
-        self.btn_obis_633.setMinimumWidth(14 * ch)
+        self.btn_obis_633.setMinimumWidth(120)
         self.btn_obis_633.setEnabled(False)
         self.btn_obis_633.setCheckable(False)
         self.btn_obis_633.clicked.connect(

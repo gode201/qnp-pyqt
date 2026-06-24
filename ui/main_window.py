@@ -21,7 +21,6 @@ class DAQMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("QNP galvo control and scanning ver4.0 (PyQt5)")
-        self.resize(1650, 970)
 
         self._last_winspec_data = None  # (x_array, y_array) 튜플 형태로 저장할 예정
         self._last_ph_hist_data = None  # (t_array, counts_array) 튜플 형태로 저장할 예정
@@ -43,25 +42,29 @@ class DAQMainWindow(QMainWindow):
         fm = self.fontMetrics()
         ch = fm.averageCharWidth()
 
-        # Constraints 
-        self.left_panel.setMinimumWidth(38 * ch)
-        self.left_panel.setMaximumWidth(46 * ch)
-        self.center_panel.setMinimumWidth(42 * ch)
-        self.right_panel.setMinimumWidth(26 * ch)
-        self.right_panel.setMaximumWidth(34 * ch)
+        # Constraints — ch 기반으로 설정하여 DPI 및 폰트 크기에 따라 동적으로 사이즈 조절
+        self.left_panel.setMinimumWidth(int(45 * ch))
+        self.left_panel.setMaximumWidth(int(58 * ch))
+        self.center_panel.setMinimumWidth(int(40 * ch))
+        self.right_panel.setMinimumWidth(int(42 * ch))
+        self.right_panel.setMaximumWidth(int(55 * ch))
 
         # Window Resizing
         screen = QApplication.primaryScreen().availableGeometry()
-        window_width = int(screen.width() * 0.86)
-        self.resize(window_width, int(screen.height() * 0.88))
+        window_width = int(screen.width() * 0.88)
+        self.resize(window_width, int(screen.height() * 0.90))
 
         main_splitter.addWidget(self.left_panel)
         main_splitter.addWidget(self.center_panel)
         main_splitter.addWidget(self.right_panel)
 
-        # FIX: 절대 픽셀값(550, 1000, 100)을 버리고 ch 단위 기반의 동적 사이즈 할당
-        left_init = int(40 * ch)  # Min과 Max 사이의 적절한 초기값
-        right_init = int(28 * ch) 
+        # 중앙 패널이 남은 공간을 흡수하도록 stretch factor 설정
+        main_splitter.setStretchFactor(0, 0)  # left: 고정
+        main_splitter.setStretchFactor(1, 1)  # center: 확장
+        main_splitter.setStretchFactor(2, 0)  # right: 고정
+
+        left_init = int(48 * ch)
+        right_init = int(45 * ch)
         center_init = window_width - left_init - right_init
 
         main_splitter.setSizes([left_init, center_init, right_init])
